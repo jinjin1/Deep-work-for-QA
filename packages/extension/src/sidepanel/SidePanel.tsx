@@ -3,6 +3,7 @@ import { createBugReport, generateReproSteps } from '../lib/api';
 
 type Severity = 'critical' | 'major' | 'minor' | 'trivial';
 type SidePanelView = 'recording' | 'form' | 'success';
+type CaptureMode = 'recording' | 'screenshot' | 'manual';
 
 interface CaptureData {
   events: unknown[];
@@ -26,6 +27,7 @@ export function SidePanel() {
   const [view, setView] = useState<SidePanelView>('form');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('manual');
 
   // Form state
   const [title, setTitle] = useState('');
@@ -80,11 +82,14 @@ export function SidePanel() {
         setIsRecording(true);
         setRecordingElapsed(0);
         setView('recording');
+        setCaptureMode('recording');
       } else if (message.type === 'RECORDING_STOPPED') {
         setIsRecording(false);
+        setCaptureMode('recording');
         loadCaptureData();
         setView('form');
       } else if (message.type === 'SCREENSHOT_TAKEN') {
+        setCaptureMode('screenshot');
         loadScreenshotData();
         setView('form');
       }
@@ -104,6 +109,7 @@ export function SidePanel() {
       setLoadingCapture(false);
       if (response?.success && response.data) {
         setCaptureData(response.data);
+        setCaptureMode('recording');
       }
     });
   }, []);
@@ -116,9 +122,12 @@ export function SidePanel() {
       }
       if (result.screenshotData?.dataUrl) {
         setScreenshotDataUrl(result.screenshotData.dataUrl);
+        if (!captureData) {
+          setCaptureMode('screenshot');
+        }
       }
     });
-  }, []);
+  }, [captureData]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -132,6 +141,7 @@ export function SidePanel() {
     setView('recording');
     setCaptureData(null);
     setScreenshotDataUrl(null);
+    setCaptureMode('recording');
     chrome.runtime.sendMessage({ type: 'START_RECORDING' });
   };
 
@@ -143,6 +153,16 @@ export function SidePanel() {
       loadCaptureData();
       setView('form');
     }, 500);
+  };
+
+  const handleTakeScreenshot = () => {
+    chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
+      if (chrome.runtime.lastError) return;
+      if (response?.success) {
+        setCaptureMode('screenshot');
+        loadScreenshotData();
+      }
+    });
   };
 
   const handleSubmit = async () => {
@@ -219,7 +239,38 @@ export function SidePanel() {
     setReproError('');
     setCaptureData(null);
     setScreenshotDataUrl(null);
+    setCaptureMode('manual');
     setView('form');
+  };
+
+  const hasAnyCaptureData = captureData || screenshotDataUrl;
+
+  // Capture mode badge
+  const renderCaptureModeBadge = () => {
+    if (captureMode === 'recording' && captureData) {
+      return (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 11, color: '#dc2626', background: '#fef2f2',
+          padding: '3px 8px', borderRadius: 10, fontWeight: 500,
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626', display: 'inline-block' }} />
+          조작 녹화 완료
+        </div>
+      );
+    }
+    if (captureMode === 'screenshot' && screenshotDataUrl) {
+      return (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 11, color: '#2563eb', background: '#eff6ff',
+          padding: '3px 8px', borderRadius: 10, fontWeight: 500,
+        }}>
+          &#x1F4F7; 스크린샷 첨부됨
+        </div>
+      );
+    }
+    return null;
   };
 
   // ===================== RECORDING VIEW =====================
@@ -246,11 +297,21 @@ export function SidePanel() {
           <div style={{ fontSize: 32, fontWeight: 700, color: '#dc2626', fontFamily: 'monospace' }}>
             {formatTime(recordingElapsed)}
           </div>
-          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
-            버그를 재현한 후 녹화를 중지하세요
+          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 8 }}>
+            버그를 재현한 후 아래 버튼을 눌러 중지하세요
           </div>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
-            페이지를 자유롭게 조작할 수 있습니다
+          <div style={{
+            fontSize: 11, color: '#9ca3af', marginTop: 8,
+            display: 'flex', justifyContent: 'center', gap: 8,
+          }}>
+            {['클릭/입력', '콘솔', '네트워크'].map((tag) => (
+              <span key={tag} style={{
+                background: 'rgba(255,255,255,0.7)', padding: '2px 8px',
+                borderRadius: 4,
+              }}>
+                {tag} 기록 중
+              </span>
+            ))}
           </div>
         </div>
 
@@ -363,21 +424,44 @@ export function SidePanel() {
   // ===================== FORM VIEW =====================
   return (
     <div style={{ padding: 16, maxWidth: 400 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>새 버그 리포트</h2>
-        {!captureData && (
-          <button
-            onClick={handleStartRecording}
-            style={{
-              padding: '6px 12px', border: 'none', borderRadius: 6,
-              background: '#ef4444', color: 'white', fontSize: 12, fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            녹화 시작
-          </button>
-        )}
+        {renderCaptureModeBadge()}
       </div>
+
+      {/* Capture action bar - show when no capture data exists */}
+      {!hasAnyCaptureData && (
+        <div style={{
+          padding: 12, background: '#fefce8', borderRadius: 8, marginBottom: 14,
+          border: '1px solid #fef08a',
+        }}>
+          <div style={{ fontSize: 12, color: '#854d0e', marginBottom: 8, fontWeight: 500 }}>
+            캡처 데이터 없이 리포트를 작성합니다. 증거를 첨부하시겠습니까?
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={handleStartRecording}
+              style={{
+                flex: 1, padding: '8px 0', border: 'none', borderRadius: 6,
+                background: '#ef4444', color: 'white', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              &#x23FA; 조작 녹화
+            </button>
+            <button
+              onClick={handleTakeScreenshot}
+              style={{
+                flex: 1, padding: '8px 0', border: '1px solid #d1d5db', borderRadius: 6,
+                background: 'white', color: '#374151', fontSize: 12, fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              &#x1F4F7; 스크린샷
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Title */}
       <div style={{ marginBottom: 12 }}>
@@ -441,11 +525,12 @@ export function SidePanel() {
       {screenshotDataUrl && (
         <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280' }}>스크린샷</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280' }}>&#x1F4F7; 스크린샷</div>
             <button
               onClick={() => {
                 setScreenshotDataUrl(null);
                 chrome.storage.local.remove('screenshotData');
+                if (!captureData) setCaptureMode('manual');
               }}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
@@ -468,30 +553,30 @@ export function SidePanel() {
       )}
 
       {/* Auto-collected data */}
-      <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>자동 수집 데이터</div>
-        {loadingCapture ? (
-          <div style={{ fontSize: 12, color: '#9ca3af' }}>&#x23F3; 데이터 로딩 중...</div>
-        ) : captureData ? (
-          <div style={{ fontSize: 12, color: '#374151', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span>
-              &#x1F5A5; 환경: {captureData.environment?.viewport
-                ? `${captureData.environment.viewport.width}x${captureData.environment.viewport.height}`
-                : '수집 완료'}
-            </span>
-            <span>&#x1F4CB; 이벤트: {(captureData.events as unknown[])?.length || 0}개 수집</span>
-            <span>&#x1F6A8; 콘솔 로그: {(captureData.console_logs as unknown[])?.length || 0}개 수집</span>
-            <span>&#x1F310; 네트워크: {(captureData.network_logs as unknown[])?.length || 0}개 수집</span>
-            <span style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-              URL: {captureData.url ? captureData.url.slice(0, 50) + (captureData.url.length > 50 ? '...' : '') : 'N/A'}
-            </span>
+      {(captureData || loadingCapture) && (
+        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>
+            &#x23FA; 녹화 데이터
           </div>
-        ) : (
-          <div style={{ fontSize: 12, color: '#f59e0b' }}>
-            &#x26A0;&#xFE0F; 수집된 데이터가 없습니다. 녹화를 시작하세요.
-          </div>
-        )}
-      </div>
+          {loadingCapture ? (
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>&#x23F3; 데이터 로딩 중...</div>
+          ) : captureData ? (
+            <div style={{ fontSize: 12, color: '#374151', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span>
+                &#x1F5A5; 환경: {captureData.environment?.viewport
+                  ? `${captureData.environment.viewport.width}x${captureData.environment.viewport.height}`
+                  : '수집 완료'}
+              </span>
+              <span>&#x1F4CB; 이벤트: {(captureData.events as unknown[])?.length || 0}개 수집</span>
+              <span>&#x1F6A8; 콘솔 로그: {(captureData.console_logs as unknown[])?.length || 0}개 수집</span>
+              <span>&#x1F310; 네트워크: {(captureData.network_logs as unknown[])?.length || 0}개 수집</span>
+              <span style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                URL: {captureData.url ? captureData.url.slice(0, 50) + (captureData.url.length > 50 ? '...' : '') : 'N/A'}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/* Linear checkbox */}
       <div style={{ marginBottom: 16 }}>
