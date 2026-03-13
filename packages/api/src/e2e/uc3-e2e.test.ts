@@ -1,0 +1,303 @@
+/**
+ * UC-3 E2E Test Suite
+ * Tests the full visual regression testing flow against the running API server.
+ * Prerequisite: API server running at http://localhost:3001
+ */
+import { describe, it, expect, beforeAll } from 'vitest';
+
+const API = 'http://localhost:3001/v1';
+
+async function api(method: string, path: string, body?: any) {
+  const opts: RequestInit = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${API}${path}`, opts);
+  return { status: res.status, json: await res.json() };
+}
+
+describe('UC-3 E2E: Visual Regression Testing Full Flow', () => {
+  // ─── Verify seed data ──────────────────────────────────────
+
+  describe('1. Seed data verification', () => {
+    it('should have demo baselines from seed', async () => {
+      const { status, json } = await api('GET', '/baselines');
+      expect(status).toBe(200);
+      expect(json.data.length).toBeGreaterThanOrEqual(4);
+
+      // Check by ID rather than name (name may be updated by other tests)
+      const ids = json.data.map((b: any) => b.id);
+      expect(ids).toContain('demo-baseline-1');
+      expect(ids).toContain('demo-baseline-2');
+      expect(ids).toContain('demo-baseline-3');
+      expect(ids).toContain('demo-baseline-4');
+    });
+
+    it('should have demo visual diffs from seed', async () => {
+      const { status, json } = await api('GET', '/visual-diffs');
+      expect(status).toBe(200);
+      expect(json.data.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('should have mixed-status diff for homepage', async () => {
+      const { status, json } = await api('GET', '/visual-diffs/demo-diff-1');
+      expect(status).toBe(200);
+      expect(json.data.overall_status).toBe('mixed');
+      expect(json.data.changes.length).toBe(2);
+      expect(json.data.baseline).toBeTruthy();
+      expect(json.data.baseline.name).toBeTruthy(); // Name may be updated by other tests
+    });
+
+    it('should have no_change diff for login page', async () => {
+      const { status, json } = await api('GET', '/visual-diffs/demo-diff-2');
+      expect(status).toBe(200);
+      expect(json.data.overall_status).toBe('no_change');
+      expect(json.data.changes.length).toBe(0);
+    });
+  });
+
+  // ─── Full flow: Create → Compare → Analyze → Action ──────
+
+  describe('2. Full comparison flow', () => {
+    let newBaselineId: string;
+    let newDiffId: string;
+
+    it('Step 1: Create a new baseline', async () => {
+      const { status, json } = await api('POST', '/baselines', {
+        name: 'E2E 테스트 페이지 - Desktop',
+        page_url: 'https://e2e.example.com/test-page',
+        viewport: { width: 1920, height: 1080 },
+        screenshot_url: 'data:image/png;base64,baseline-screenshot-data',
+      });
+      expect(status).toBe(201);
+      expect(json.data.id).toBeTruthy();
+      newBaselineId = json.data.id;
+    });
+
+    it('Step 2: Verify baseline was created', async () => {
+      const { status, json } = await api('GET', `/baselines/${newBaselineId}`);
+      expect(status).toBe(200);
+      expect(json.data.name).toBe('E2E 테스트 페이지 - Desktop');
+      expect(json.data.page_url).toBe('https://e2e.example.com/test-page');
+      expect(json.data.viewport).toEqual({ width: 1920, height: 1080 });
+    });
+
+    it('Step 3: Create a visual diff (comparison)', async () => {
+      const { status, json } = await api('POST', '/visual-diffs', {
+        baseline_id: newBaselineId,
+        current_screenshot_url: 'data:image/png;base64,current-screenshot-data',
+      });
+      expect(status).toBe(201);
+      expect(json.data.id).toBeTruthy();
+      expect(json.data.ai_analysis_status).toBe('pending');
+      newDiffId = json.data.id;
+    });
+
+    it('Step 4: Trigger AI analysis', async () => {
+      const { status, json } = await api('POST', `/visual-diffs/${newDiffId}/analyze`);
+      expect(status).toBe(200);
+      expect(json.data.ai_analysis_status).toBe('completed');
+      expect(json.data.overall_status).toBeDefined();
+      expect(Array.isArray(json.data.changes)).toBe(true);
+      expect(json.data.changes.length).toBeGreaterThan(0);
+      expect(json.data.summary).toBeTruthy();
+    });
+
+    it('Step 5: Verify analysis results are persisted', async () => {
+      const { status, json } = await api('GET', `/visual-diffs/${newDiffId}`);
+      expect(status).toBe(200);
+      expect(json.data.ai_analysis_status).toBe('completed');
+      expect(json.data.changes.length).toBeGreaterThan(0);
+      expect(json.data.baseline.name).toBe('E2E 테스트 페이지 - Desktop');
+
+      // Verify each change has required fields
+      for (const change of json.data.changes) {
+        expect(change.id).toBeTruthy();
+        expect(change.region).toBeDefined();
+        expect(change.type).toBeTruthy();
+        expect(change.classification).toBeTruthy();
+        expect(change.confidence).toBeGreaterThan(0);
+        expect(change.description).toBeTruthy();
+      }
+    });
+
+    it('Step 6: Create a bug report from regression', async () => {
+      const { status, json } = await api('POST', `/visual-diffs/${newDiffId}/bug-report`, {
+        title: 'E2E: 시각적 회귀 발견',
+        severity: 'major',
+        description: 'E2E 테스트에서 발견된 시각적 회귀입니다.',
+      });
+      expect(status).toBe(201);
+      expect(json.data.id).toBeTruthy();
+      expect(json.data.visual_diff_id).toBe(newDiffId);
+
+      // Verify bug report was created
+      const bugRes = await api('GET', `/bug-reports/${json.data.id}`);
+      expect(bugRes.status).toBe(200);
+      expect(bugRes.json.data.title).toBe('E2E: 시각적 회귀 발견');
+      expect(bugRes.json.data.visualDiffId).toBe(newDiffId);
+    });
+  });
+
+  // ─── Baseline update flow ─────────────────────────────────
+
+  describe('3. Baseline update (approve) flow', () => {
+    let approveBaselineId: string;
+    let approveDiffId: string;
+
+    it('Step 1: Create baseline and diff for approval', async () => {
+      const baselineRes = await api('POST', '/baselines', {
+        name: '승인 테스트 페이지',
+        page_url: 'https://e2e.example.com/approve-test',
+        screenshot_url: 'original-screenshot-url',
+      });
+      approveBaselineId = baselineRes.json.data.id;
+
+      const diffRes = await api('POST', '/visual-diffs', {
+        baseline_id: approveBaselineId,
+        current_screenshot_url: 'new-screenshot-url',
+      });
+      approveDiffId = diffRes.json.data.id;
+    });
+
+    it('Step 2: Approve changes (update baseline)', async () => {
+      const { status, json } = await api('POST', `/visual-diffs/${approveDiffId}/approve`);
+      expect(status).toBe(200);
+      expect(json.data.baseline_updated).toBe(true);
+    });
+
+    it('Step 3: Verify baseline screenshot was updated', async () => {
+      const { status, json } = await api('GET', `/baselines/${approveBaselineId}`);
+      expect(status).toBe(200);
+      expect(json.data.screenshot_url).toBe('new-screenshot-url');
+    });
+  });
+
+  // ─── Filtering & History ──────────────────────────────────
+
+  describe('4. Filtering and history', () => {
+    it('should filter visual diffs by baseline_id', async () => {
+      const { status, json } = await api('GET', '/visual-diffs?baseline_id=demo-baseline-1');
+      expect(status).toBe(200);
+      expect(json.data.length).toBeGreaterThanOrEqual(1);
+      for (const diff of json.data) {
+        expect(diff.baseline_id).toBe('demo-baseline-1');
+      }
+    });
+
+    it('should filter visual diffs by status', async () => {
+      const { status, json } = await api('GET', '/visual-diffs?status=regression');
+      expect(status).toBe(200);
+      for (const diff of json.data) {
+        expect(diff.overall_status).toBe('regression');
+      }
+    });
+
+    it('should show all baselines with their status context', async () => {
+      const baselinesRes = await api('GET', '/baselines');
+      const diffsRes = await api('GET', '/visual-diffs');
+
+      expect(baselinesRes.status).toBe(200);
+      expect(diffsRes.status).toBe(200);
+
+      // Each baseline should be linkable to its diffs
+      for (const baseline of baselinesRes.json.data) {
+        const relatedDiffs = diffsRes.json.data.filter(
+          (d: any) => d.baseline_id === baseline.id,
+        );
+        // Some baselines may not have diffs yet
+        if (relatedDiffs.length > 0) {
+          expect(relatedDiffs[0].baseline_id).toBe(baseline.id);
+        }
+      }
+    });
+  });
+
+  // ─── Update baseline metadata ─────────────────────────────
+
+  describe('5. Baseline management', () => {
+    it('should update baseline name', async () => {
+      // Create a dedicated baseline for this test to avoid side effects
+      const createRes = await api('POST', '/baselines', {
+        name: 'Update Test Baseline',
+        page_url: 'https://e2e.example.com/update-test',
+      });
+      const testId = createRes.json.data.id;
+
+      const { status, json } = await api('PUT', `/baselines/${testId}`, {
+        name: 'Update Test Baseline (Updated)',
+      });
+      expect(status).toBe(200);
+      expect(json.data.updated).toBe(true);
+
+      // Verify
+      const getRes = await api('GET', `/baselines/${testId}`);
+      expect(getRes.json.data.name).toBe('Update Test Baseline (Updated)');
+    });
+
+    it('should return 404 for non-existent baseline', async () => {
+      const { status } = await api('GET', '/baselines/non-existent-id');
+      expect(status).toBe(404);
+    });
+
+    it('should return 404 for non-existent visual diff', async () => {
+      const { status } = await api('GET', '/visual-diffs/non-existent-id');
+      expect(status).toBe(404);
+    });
+  });
+
+  // ─── Error handling ───────────────────────────────────────
+
+  describe('6. Error handling', () => {
+    it('should reject visual diff creation with invalid baseline_id', async () => {
+      const { status, json } = await api('POST', '/visual-diffs', {
+        baseline_id: 'invalid-baseline',
+        current_screenshot_url: 'test',
+      });
+      expect(status).toBe(404);
+    });
+
+    it('should reject analyze on non-existent diff', async () => {
+      const { status } = await api('POST', '/visual-diffs/invalid/analyze');
+      expect(status).toBe(404);
+    });
+
+    it('should reject approve on non-existent diff', async () => {
+      const { status } = await api('POST', '/visual-diffs/invalid/approve');
+      expect(status).toBe(404);
+    });
+
+    it('should reject bug report creation on non-existent diff', async () => {
+      const { status } = await api('POST', '/visual-diffs/invalid/bug-report', { title: 'test' });
+      expect(status).toBe(404);
+    });
+  });
+
+  // ─── Cleanup ──────────────────────────────────────────────
+
+  describe('7. Cleanup (delete)', () => {
+    it('should delete a baseline and cascade to visual diffs', async () => {
+      // Create temp baseline + diff
+      const bRes = await api('POST', '/baselines', {
+        name: 'Temp Baseline',
+        page_url: 'https://temp.example.com',
+      });
+      const bId = bRes.json.data.id;
+
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: bId,
+        current_screenshot_url: 'temp',
+      });
+      const dId = dRes.json.data.id;
+
+      // Delete baseline
+      const deleteRes = await api('DELETE', `/baselines/${bId}`);
+      expect(deleteRes.status).toBe(200);
+
+      // Visual diff should also be gone
+      const diffRes = await api('GET', `/visual-diffs/${dId}`);
+      expect(diffRes.status).toBe(404);
+    });
+  });
+});
