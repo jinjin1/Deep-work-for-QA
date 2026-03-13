@@ -1,0 +1,20 @@
+{
+  "name": "deep-work",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI Native QA workflow platform",
+  "scripts": {
+    "dev": "pnpm dev:api & pnpm dev:web & wait",
+    "dev:api": "pnpm --filter @deep-work/api dev",
+    "dev:web": "pnpm --filter @deep-work/web dev",
+    "dev:extension": "pnpm --filter @deep-work/extension dev",
+    "dev:all": "pnpm dev:api & pnpm dev:web & pnpm dev:extension & wait",
+    "db:reset": "pnpm --filter @deep-work/api db:reset",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
