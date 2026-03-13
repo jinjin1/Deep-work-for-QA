@@ -26,6 +26,9 @@ export function seedDefaults(db: BetterSQLite3Database<any>) {
 
   // Seed demo sessions for local testing
   seedDemoSessions(db);
+
+  // Seed demo baselines and visual diffs for UC-3
+  seedDemoBaselines(db);
 }
 
 function seedDemoSessions(db: BetterSQLite3Database<any>) {
@@ -261,4 +264,152 @@ function createDemoSession(
   }
 
   console.log(`[seed] Session ${opts.id}: ${analysis.anomalies.length} anomalies, ${analysis.causal_chain.length} causal chains`);
+}
+
+function seedDemoBaselines(db: BetterSQLite3Database<any>) {
+  const existing = db.all(sql`SELECT id FROM baselines WHERE id = 'demo-baseline-1'`);
+  if (existing.length > 0) {
+    console.log('[seed] Demo baselines already exist, skipping.');
+    return;
+  }
+
+  const now = new Date();
+
+  // Baseline 1: Homepage Desktop
+  db.run(sql`
+    INSERT OR IGNORE INTO baselines (id, project_id, name, page_url, viewport, screenshot_url, created_by, created_at, updated_at)
+    VALUES (
+      'demo-baseline-1', 'proj-default', '홈페이지 - Desktop',
+      'https://app.example.com/', ${JSON.stringify({ width: 1440, height: 900 })},
+      'mock://screenshots/homepage-desktop.png', 'user-default',
+      ${new Date(now.getTime() - 7 * 86400000).toISOString()},
+      ${new Date(now.getTime() - 7 * 86400000).toISOString()}
+    )
+  `);
+
+  // Baseline 2: Login Page Desktop
+  db.run(sql`
+    INSERT OR IGNORE INTO baselines (id, project_id, name, page_url, viewport, screenshot_url, created_by, created_at, updated_at)
+    VALUES (
+      'demo-baseline-2', 'proj-default', '로그인 페이지 - Desktop',
+      'https://app.example.com/login', ${JSON.stringify({ width: 1440, height: 900 })},
+      'mock://screenshots/login-desktop.png', 'user-default',
+      ${new Date(now.getTime() - 5 * 86400000).toISOString()},
+      ${new Date(now.getTime() - 5 * 86400000).toISOString()}
+    )
+  `);
+
+  // Baseline 3: Dashboard Mobile
+  db.run(sql`
+    INSERT OR IGNORE INTO baselines (id, project_id, name, page_url, viewport, screenshot_url, created_by, created_at, updated_at)
+    VALUES (
+      'demo-baseline-3', 'proj-default', '대시보드 - Mobile',
+      'https://app.example.com/dashboard', ${JSON.stringify({ width: 375, height: 812 })},
+      'mock://screenshots/dashboard-mobile.png', 'user-default',
+      ${new Date(now.getTime() - 3 * 86400000).toISOString()},
+      ${new Date(now.getTime() - 3 * 86400000).toISOString()}
+    )
+  `);
+
+  // Baseline 4: Settings Page
+  db.run(sql`
+    INSERT OR IGNORE INTO baselines (id, project_id, name, page_url, viewport, screenshot_url, created_by, created_at, updated_at)
+    VALUES (
+      'demo-baseline-4', 'proj-default', '설정 페이지 - Desktop',
+      'https://app.example.com/settings', ${JSON.stringify({ width: 1440, height: 900 })},
+      'mock://screenshots/settings-desktop.png', 'user-default',
+      ${new Date(now.getTime() - 2 * 86400000).toISOString()},
+      ${new Date(now.getTime() - 2 * 86400000).toISOString()}
+    )
+  `);
+
+  // VisualDiff 1: Homepage regression (nav layout broken)
+  const diff1Changes = JSON.stringify([
+    {
+      id: uuid(),
+      region: { x: 0, y: 0, width: 1440, height: 60 },
+      type: 'layout_shift',
+      classification: 'regression',
+      confidence: 0.85,
+      description: '네비게이션 바의 마지막 메뉴 항목이 화면 밖으로 잘렸습니다. flex 컨테이너의 overflow 처리에 문제가 있는 것으로 보입니다.',
+    },
+    {
+      id: uuid(),
+      region: { x: 200, y: 400, width: 600, height: 300 },
+      type: 'text_change',
+      classification: 'intentional',
+      confidence: 0.92,
+      description: '메인 배너의 타이틀 텍스트가 변경되었습니다. 마케팅 컨텐츠 업데이트로 보입니다.',
+    },
+  ]);
+
+  db.run(sql`
+    INSERT OR IGNORE INTO visual_diffs (id, baseline_id, project_id, current_screenshot_url, diff_image_url, changes, overall_status, ai_analysis_status, created_by, created_at)
+    VALUES (
+      'demo-diff-1', 'demo-baseline-1', 'proj-default',
+      'mock://screenshots/homepage-current.png',
+      'mock://diffs/homepage-diff.png',
+      ${diff1Changes}, 'mixed', 'completed', 'user-default',
+      ${new Date(now.getTime() - 1 * 86400000).toISOString()}
+    )
+  `);
+
+  // VisualDiff 2: Login page no changes
+  db.run(sql`
+    INSERT OR IGNORE INTO visual_diffs (id, baseline_id, project_id, current_screenshot_url, diff_image_url, changes, overall_status, ai_analysis_status, created_by, created_at)
+    VALUES (
+      'demo-diff-2', 'demo-baseline-2', 'proj-default',
+      'mock://screenshots/login-current.png',
+      NULL, '[]', 'no_change', 'completed', 'user-default',
+      ${new Date(now.getTime() - 1 * 86400000).toISOString()}
+    )
+  `);
+
+  // VisualDiff 3: Dashboard regression (chart broken)
+  const diff3Changes = JSON.stringify([
+    {
+      id: uuid(),
+      region: { x: 50, y: 200, width: 300, height: 250 },
+      type: 'element_missing',
+      classification: 'regression',
+      confidence: 0.88,
+      description: '대시보드 차트 영역이 렌더링되지 않고 있습니다. 데이터 로딩 실패로 보입니다.',
+    },
+  ]);
+
+  db.run(sql`
+    INSERT OR IGNORE INTO visual_diffs (id, baseline_id, project_id, current_screenshot_url, diff_image_url, changes, overall_status, ai_analysis_status, created_by, created_at)
+    VALUES (
+      'demo-diff-3', 'demo-baseline-3', 'proj-default',
+      'mock://screenshots/dashboard-current.png',
+      'mock://diffs/dashboard-diff.png',
+      ${diff3Changes}, 'regression', 'completed', 'user-default',
+      ${new Date(now.getTime() - 12 * 3600000).toISOString()}
+    )
+  `);
+
+  // VisualDiff 4: Settings page intentional change
+  const diff4Changes = JSON.stringify([
+    {
+      id: uuid(),
+      region: { x: 100, y: 350, width: 200, height: 40 },
+      type: 'element_added',
+      classification: 'intentional',
+      confidence: 0.91,
+      description: '새로운 다크모드 토글 스위치가 설정 페이지에 추가되었습니다.',
+    },
+  ]);
+
+  db.run(sql`
+    INSERT OR IGNORE INTO visual_diffs (id, baseline_id, project_id, current_screenshot_url, diff_image_url, changes, overall_status, ai_analysis_status, created_by, created_at)
+    VALUES (
+      'demo-diff-4', 'demo-baseline-4', 'proj-default',
+      'mock://screenshots/settings-current.png',
+      'mock://diffs/settings-diff.png',
+      ${diff4Changes}, 'intentional', 'completed', 'user-default',
+      ${new Date(now.getTime() - 6 * 3600000).toISOString()}
+    )
+  `);
+
+  console.log('[seed] 4 demo baselines and 4 demo visual diffs created.');
 }
