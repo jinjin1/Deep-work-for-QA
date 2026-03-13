@@ -97,6 +97,66 @@ export async function deleteSession(id: string) {
   return request<{ data: any; meta: any }>(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
 }
 
+// ─── UC-3: Visual Regression Testing ─────────────────────────
+
 export async function fetchBaselines() {
   return request<{ data: any[]; meta: any }>(`${API_BASE}/baselines`);
+}
+
+export async function fetchBaseline(id: string) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/baselines/${id}`);
+}
+
+export async function updateBaseline(id: string, data: { name?: string; screenshot_url?: string }) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/baselines/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteBaseline(id: string) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/baselines/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchVisualDiffs(params?: {
+  baseline_id?: string;
+  status?: string;
+  project_id?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.baseline_id) searchParams.set('baseline_id', params.baseline_id);
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.project_id) searchParams.set('project_id', params.project_id);
+  const qs = searchParams.toString();
+  return request<{ data: any[]; meta: any }>(`${API_BASE}/visual-diffs${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchVisualDiff(id: string) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs/${id}`);
+}
+
+export async function triggerVisualAnalysis(id: string) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs/${id}/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function approveVisualDiff(id: string) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function createBugReportFromVisualDiff(
+  id: string,
+  data: { title?: string; description?: string; severity?: string },
+) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs/${id}/bug-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
 }
