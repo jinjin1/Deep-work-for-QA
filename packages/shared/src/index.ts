@@ -15,21 +15,6 @@ export type {
 } from './types/bug-report';
 
 export type {
-  AnomalyType,
-  AnomalySeverity,
-  Anomaly,
-  SessionEventType,
-  SessionEventData,
-  SessionEvent,
-  SessionBookmark,
-  SessionTag,
-  SessionMetadata,
-  CausalChain,
-  AiAnalysisResult,
-  Session,
-} from './types/session';
-
-export type {
   Baseline,
   VisualChangeType,
   VisualChange,

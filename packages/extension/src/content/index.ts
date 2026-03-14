@@ -2,6 +2,8 @@
 // Captures DOM events, console logs, and network requests
 export {};
 
+import { startRegionCapture } from './regionCapture';
+
 interface CapturedEvent {
   timestamp: number;
   type: string;
@@ -32,25 +34,13 @@ let capturedNetworkLogs: NetworkLogEntry[] = [];
 let startTime = 0;
 let performanceObserver: PerformanceObserver | null = null;
 
-// Session capture state (separate from bug report capture)
-let isSessionCapturing = false;
-let sessionEvents: CapturedEvent[] = [];
-let sessionConsoleLogs: ConsoleLogEntry[] = [];
-let sessionNetworkLogs: NetworkLogEntry[] = [];
-let sessionStartTime = 0;
-let sessionPerformanceObserver: PerformanceObserver | null = null;
-let lastUrl = '';
-
 // Store original console methods
+const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 
 function getTimestamp(): number {
   return Date.now() - startTime;
-}
-
-function getSessionTimestamp(): number {
-  return Date.now() - sessionStartTime;
 }
 
 function getTargetSelector(el: Element): string {
@@ -65,64 +55,34 @@ function getTargetSelector(el: Element): string {
 // ---- Bug Report Capture (existing) ----
 
 function handleClick(e: MouseEvent) {
-  if (!isCapturing && !isSessionCapturing) return;
+  if (!isCapturing) return;
   const target = e.target as Element;
   const selector = getTargetSelector(target);
-  const eventData: CapturedEvent = {
-    timestamp: isCapturing ? getTimestamp() : getSessionTimestamp(),
+  capturedEvents.push({
+    timestamp: getTimestamp(),
     type: 'click',
     target: selector,
     data: { x: e.clientX, y: e.clientY },
-  };
-
-  if (isCapturing) capturedEvents.push(eventData);
-  if (isSessionCapturing) sessionEvents.push({ ...eventData, timestamp: getSessionTimestamp() });
-}
-
-function handleInput(e: Event) {
-  if (!isCapturing && !isSessionCapturing) return;
-  const target = e.target as HTMLInputElement;
-  const isSensitive = target.type === 'password';
-  const selector = getTargetSelector(target);
-  const eventData: CapturedEvent = {
-    timestamp: isCapturing ? getTimestamp() : getSessionTimestamp(),
-    type: 'input',
-    target: selector,
-    data: { value: isSensitive ? '********' : '[input]' },
-  };
-
-  if (isCapturing) capturedEvents.push(eventData);
-  if (isSessionCapturing) sessionEvents.push({ ...eventData, timestamp: getSessionTimestamp() });
-}
-
-function handleScroll() {
-  if (!isSessionCapturing) return;
-  // Throttle: only record once per 150ms
-  const now = getSessionTimestamp();
-  const lastScroll = sessionEvents.filter(e => e.type === 'scroll').pop();
-  if (lastScroll && now - lastScroll.timestamp < 150) return;
-
-  sessionEvents.push({
-    timestamp: now,
-    type: 'scroll',
-    data: { scrollX: window.scrollX, scrollY: window.scrollY },
   });
 }
 
-function handleResize() {
-  if (!isSessionCapturing) return;
-  sessionEvents.push({
-    timestamp: getSessionTimestamp(),
-    type: 'resize',
-    data: { width: window.innerWidth, height: window.innerHeight },
+function handleInput(e: Event) {
+  if (!isCapturing) return;
+  const target = e.target as HTMLInputElement;
+  const isSensitive = target.type === 'password';
+  const selector = getTargetSelector(target);
+  capturedEvents.push({
+    timestamp: getTimestamp(),
+    type: 'input',
+    target: selector,
+    data: { value: isSensitive ? '********' : '[input]' },
   });
 }
 
 // Console log capture
 function startConsoleCapture() {
   console.error = (...args: any[]) => {
-    const active = isCapturing || isSessionCapturing;
-    if (active) {
+    if (isCapturing) {
       const message = args.map((a) => {
         try {
           return typeof a === 'object' ? JSON.stringify(a) : String(a);
@@ -132,7 +92,7 @@ function startConsoleCapture() {
       }).join(' ');
 
       const entry: ConsoleLogEntry = {
-        timestamp: isSessionCapturing ? getSessionTimestamp() : getTimestamp(),
+        timestamp: getTimestamp(),
         level: 'error',
         message: message.slice(0, 500),
       };
@@ -146,15 +106,13 @@ function startConsoleCapture() {
         // ignore
       }
 
-      if (isCapturing) capturedConsoleLogs.push(entry);
-      if (isSessionCapturing) sessionConsoleLogs.push({ ...entry, timestamp: getSessionTimestamp() });
+      capturedConsoleLogs.push(entry);
     }
     originalConsoleError.apply(console, args);
   };
 
   console.warn = (...args: any[]) => {
-    const active = isCapturing || isSessionCapturing;
-    if (active) {
+    if (isCapturing) {
       const message = args.map((a) => {
         try {
           return typeof a === 'object' ? JSON.stringify(a) : String(a);
@@ -164,20 +122,19 @@ function startConsoleCapture() {
       }).join(' ');
 
       const entry: ConsoleLogEntry = {
-        timestamp: isSessionCapturing ? getSessionTimestamp() : getTimestamp(),
+        timestamp: getTimestamp(),
         level: 'warn',
         message: message.slice(0, 500),
       };
 
-      if (isCapturing) capturedConsoleLogs.push(entry);
-      if (isSessionCapturing) sessionConsoleLogs.push({ ...entry, timestamp: getSessionTimestamp() });
+      capturedConsoleLogs.push(entry);
     }
     originalConsoleWarn.apply(console, args);
   };
 }
 
 function stopConsoleCapture() {
-  if (!isCapturing && !isSessionCapturing) {
+  if (!isCapturing) {
     console.error = originalConsoleError;
     console.warn = originalConsoleWarn;
   }
@@ -188,21 +145,18 @@ function startNetworkCapture() {
   if (performanceObserver) performanceObserver.disconnect();
 
   performanceObserver = new PerformanceObserver((list) => {
-    if (!isCapturing && !isSessionCapturing) return;
+    if (!isCapturing) return;
 
     for (const entry of list.getEntries()) {
       const resourceEntry = entry as PerformanceResourceTiming;
-      const logEntry: NetworkLogEntry = {
-        timestamp: isSessionCapturing ? getSessionTimestamp() : getTimestamp(),
+      capturedNetworkLogs.push({
+        timestamp: getTimestamp(),
         name: resourceEntry.name,
         initiatorType: resourceEntry.initiatorType,
         duration: Math.round(resourceEntry.duration),
         transferSize: resourceEntry.transferSize || 0,
         responseStatus: (resourceEntry as any).responseStatus || undefined,
-      };
-
-      if (isCapturing) capturedNetworkLogs.push(logEntry);
-      if (isSessionCapturing) sessionNetworkLogs.push({ ...logEntry, timestamp: getSessionTimestamp() });
+      });
     }
   });
 
@@ -218,7 +172,7 @@ function startNetworkCapture() {
 }
 
 function stopNetworkCapture() {
-  if (!isCapturing && !isSessionCapturing) {
+  if (!isCapturing) {
     if (performanceObserver) {
       performanceObserver.disconnect();
       performanceObserver = null;
@@ -240,20 +194,18 @@ function startCapture() {
   startConsoleCapture();
   startNetworkCapture();
 
-  originalConsoleError.call(console, '[Deep Work] Capture started');
+  originalConsoleLog.call(console, '[Deep Work] Capture started');
 }
 
 function stopCapture() {
   isCapturing = false;
 
-  if (!isSessionCapturing) {
-    document.removeEventListener('click', handleClick, true);
-    document.removeEventListener('input', handleInput, true);
-    stopConsoleCapture();
-    stopNetworkCapture();
-  }
+  document.removeEventListener('click', handleClick, true);
+  document.removeEventListener('input', handleInput, true);
+  stopConsoleCapture();
+  stopNetworkCapture();
 
-  originalConsoleError.call(console, '[Deep Work] Capture stopped. Events:', capturedEvents.length);
+  originalConsoleLog.call(console, '[Deep Work] Capture stopped. Events:', capturedEvents.length);
 
   chrome.runtime.sendMessage({
     type: 'CAPTURE_DATA',
@@ -274,106 +226,6 @@ function stopCapture() {
   });
 }
 
-// --- Session Capture lifecycle ---
-
-function startSessionCapture() {
-  isSessionCapturing = true;
-  sessionStartTime = Date.now();
-  sessionEvents = [];
-  sessionConsoleLogs = [];
-  sessionNetworkLogs = [];
-  lastUrl = window.location.href;
-
-  // Record initial page visit
-  sessionEvents.push({
-    timestamp: 0,
-    type: 'page_visit',
-    data: { url: window.location.href, title: document.title },
-  });
-
-  document.addEventListener('click', handleClick, true);
-  document.addEventListener('input', handleInput, true);
-  document.addEventListener('scroll', handleScroll, true);
-  window.addEventListener('resize', handleResize);
-  startConsoleCapture();
-  startNetworkCapture();
-
-  // Monitor URL changes for SPA navigation
-  monitorUrlChanges();
-
-  // Capture global errors
-  window.addEventListener('error', handleGlobalError);
-  window.addEventListener('unhandledrejection', handleUnhandledRejection);
-
-  originalConsoleError.call(console, '[Deep Work] Session capture started');
-}
-
-function stopSessionCapture(): { events: CapturedEvent[]; console_logs: ConsoleLogEntry[]; network_logs: NetworkLogEntry[] } {
-  isSessionCapturing = false;
-
-  if (!isCapturing) {
-    document.removeEventListener('click', handleClick, true);
-    document.removeEventListener('input', handleInput, true);
-    stopConsoleCapture();
-    stopNetworkCapture();
-  }
-  document.removeEventListener('scroll', handleScroll, true);
-  window.removeEventListener('resize', handleResize);
-  window.removeEventListener('error', handleGlobalError);
-  window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-
-  originalConsoleError.call(console, '[Deep Work] Session capture stopped. Events:', sessionEvents.length);
-
-  return {
-    events: sessionEvents,
-    console_logs: sessionConsoleLogs,
-    network_logs: sessionNetworkLogs,
-  };
-}
-
-// Monitor SPA URL changes
-function monitorUrlChanges() {
-  const checkUrl = () => {
-    if (!isSessionCapturing) return;
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      sessionEvents.push({
-        timestamp: getSessionTimestamp(),
-        type: 'page_visit',
-        data: { url: lastUrl, title: document.title },
-      });
-      // Notify background for page count
-      chrome.runtime.sendMessage({
-        type: 'SESSION_PAGE_VISIT',
-        data: { url: lastUrl },
-      });
-    }
-    if (isSessionCapturing) {
-      setTimeout(checkUrl, 500);
-    }
-  };
-  setTimeout(checkUrl, 500);
-}
-
-// Global error handlers
-function handleGlobalError(e: ErrorEvent) {
-  if (!isSessionCapturing) return;
-  sessionConsoleLogs.push({
-    timestamp: getSessionTimestamp(),
-    level: 'error',
-    message: `${e.message} at ${e.filename}:${e.lineno}:${e.colno}`.slice(0, 500),
-  });
-}
-
-function handleUnhandledRejection(e: PromiseRejectionEvent) {
-  if (!isSessionCapturing) return;
-  sessionConsoleLogs.push({
-    timestamp: getSessionTimestamp(),
-    level: 'error',
-    message: `Unhandled rejection: ${String(e.reason)}`.slice(0, 500),
-  });
-}
-
 // --- Message handling ---
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -384,14 +236,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case 'STOP_CAPTURE':
       stopCapture();
       break;
-    case 'START_SESSION_CAPTURE':
-      startSessionCapture();
-      break;
-    case 'STOP_SESSION_CAPTURE': {
-      const data = stopSessionCapture();
-      sendResponse({ data });
-      return true;
-    }
     case 'TAKE_SCREENSHOT':
       sendResponse({
         viewport: {
@@ -405,6 +249,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         title: document.title,
       });
       return true;
+
+    case 'START_REGION_CAPTURE': {
+      startRegionCapture().then((rect) => {
+        if (rect) {
+          chrome.runtime.sendMessage({
+            type: 'REGION_SELECTED',
+            data: {
+              rect,
+              devicePixelRatio: window.devicePixelRatio,
+              viewport: { width: window.innerWidth, height: window.innerHeight },
+            },
+          });
+        }
+      });
+      sendResponse({ success: true });
+      return true;
+    }
   }
 });
 

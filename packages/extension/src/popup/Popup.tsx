@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-type Tab = 'report' | 'session' | 'visual';
+type Tab = 'report' | 'visual';
 
 export function Popup() {
   const [activeTab, setActiveTab] = useState<Tab>('report');
@@ -8,51 +8,13 @@ export function Popup() {
   const [screenshotStatus, setScreenshotStatus] = useState<'idle' | 'capturing' | 'done' | 'error'>('idle');
   const [screenshotError, setScreenshotError] = useState('');
 
-  // Session recording state
-  const [isSessionRecording, setIsSessionRecording] = useState(false);
-  const [sessionElapsed, setSessionElapsed] = useState(0);
-  const [sessionPageCount, setSessionPageCount] = useState(0);
-  const [sessionTag, setSessionTag] = useState('');
-  const [sessionCurrentUrl, setSessionCurrentUrl] = useState('');
-
   // Check recording status on mount
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
       if (chrome.runtime.lastError) return;
       if (response?.isRecording) setIsRecording(true);
-      if (response?.isSessionRecording) {
-        setIsSessionRecording(true);
-        setSessionElapsed(response.elapsed || 0);
-        setSessionPageCount(response.pageCount || 0);
-        setSessionCurrentUrl(response.currentUrl || '');
-      }
-    });
-
-    chrome.runtime.sendMessage({ type: 'GET_SESSION_STATUS' }, (response) => {
-      if (chrome.runtime.lastError) return;
-      if (response?.isSessionRecording) {
-        setIsSessionRecording(true);
-        setSessionElapsed(response.elapsed || 0);
-        setSessionPageCount(response.pageCount || 0);
-        setSessionCurrentUrl(response.currentUrl || '');
-      }
     });
   }, []);
-
-  // Timer for session recording
-  useEffect(() => {
-    if (!isSessionRecording) return;
-    const interval = setInterval(() => {
-      setSessionElapsed((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isSessionRecording]);
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
 
   const openSidePanel = () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -78,53 +40,12 @@ export function Popup() {
   };
 
   const handleScreenshot = () => {
-    setScreenshotStatus('capturing');
-    setScreenshotError('');
-
-    chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
-      if (chrome.runtime.lastError) {
-        setScreenshotStatus('error');
-        setScreenshotError(chrome.runtime.lastError.message || '스크린샷 실패');
-        return;
-      }
-
-      if (response?.success) {
-        setScreenshotStatus('done');
-        // Open SidePanel for bug report with the screenshot
-        openSidePanel();
-        window.close();
-      } else {
-        setScreenshotStatus('error');
-        setScreenshotError(response?.error || '스크린샷 캡처 실패');
-      }
-    });
-  };
-
-  const handleStartSessionRecording = () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const currentTab = tabs[0];
-      const url = currentTab?.url || '';
-      setSessionCurrentUrl(url);
-      setIsSessionRecording(true);
-      setSessionElapsed(0);
-      setSessionPageCount(1);
-      chrome.runtime.sendMessage({
-        type: 'START_SESSION_RECORDING',
-        data: { tag: sessionTag, url },
-      });
-    });
-  };
-
-  const handleStopSessionRecording = () => {
-    setIsSessionRecording(false);
-    chrome.runtime.sendMessage({ type: 'STOP_SESSION_RECORDING' });
-  };
-
-  const handleAddMark = () => {
-    chrome.runtime.sendMessage({
-      type: 'ADD_SESSION_MARK',
-      data: { label: 'User mark', timestamp: sessionElapsed * 1000 },
-    });
+    // Open SidePanel first so it's ready to receive the screenshot
+    openSidePanel();
+    // Start region capture on the page
+    chrome.runtime.sendMessage({ type: 'START_REGION_CAPTURE' });
+    // Close popup so user can interact with the page overlay
+    window.close();
   };
 
   return (
@@ -135,7 +56,7 @@ export function Popup() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>
-        {(['report', 'session', 'visual'] as Tab[]).map((tab) => (
+        {(['report', 'visual'] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -146,7 +67,7 @@ export function Popup() {
               color: activeTab === tab ? '#111827' : '#6b7280',
             }}
           >
-            {tab === 'report' ? 'Report' : tab === 'session' ? 'Session' : 'Visual'}
+            {tab === 'report' ? 'Report' : 'Visual'}
           </button>
         ))}
       </div>
@@ -227,96 +148,6 @@ export function Popup() {
                   {screenshotError}
                 </div>
               )}
-              <button
-                onClick={handleOpenSidePanel}
-                style={{
-                  width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: 8,
-                  background: 'white', fontSize: 13, cursor: 'pointer', color: '#6b7280',
-                }}
-              >
-                녹화 없이 리포트 작성 (SidePanel)
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ===== SESSION TAB ===== */}
-      {activeTab === 'session' && (
-        <div>
-          {!isSessionRecording ? (
-            <div>
-              <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
-                테스트 세션을 녹화하고 AI가 이상 패턴을 분석합니다
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>
-                  태그 (선택)
-                </label>
-                <input
-                  type="text"
-                  value={sessionTag}
-                  onChange={(e) => setSessionTag(e.target.value)}
-                  placeholder="로그인 테스트"
-                  style={{
-                    width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb',
-                    borderRadius: 6, fontSize: 13, boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-              <button
-                onClick={handleStartSessionRecording}
-                style={{
-                  width: '100%', padding: '12px', border: 'none', borderRadius: 8,
-                  background: '#10b981', color: 'white', fontSize: 15, fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                세션 녹화 시작
-              </button>
-            </div>
-          ) : (
-            <div>
-              <div style={{
-                textAlign: 'center', padding: 16, background: '#f0fdf4',
-                borderRadius: 8, marginBottom: 8,
-              }}>
-                <div style={{
-                  display: 'inline-block', width: 12, height: 12,
-                  borderRadius: '50%', background: '#10b981',
-                  animation: 'pulse 1s ease-in-out infinite',
-                  marginBottom: 4, marginRight: 6, verticalAlign: 'middle',
-                }} />
-                <span style={{ fontSize: 15, fontWeight: 600, color: '#059669' }}>
-                  녹화 중 {formatTime(sessionElapsed)}
-                </span>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                  {sessionCurrentUrl ? (() => { try { return new URL(sessionCurrentUrl).hostname; } catch { return sessionCurrentUrl; } })() : ''}
-                </div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                  {sessionPageCount} pages visited
-                </div>
-              </div>
-              <button
-                onClick={handleAddMark}
-                style={{
-                  width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: 8,
-                  background: 'white', fontSize: 14, cursor: 'pointer', marginBottom: 6,
-                  color: '#374151',
-                }}
-              >
-                마크 추가
-              </button>
-              <button
-                onClick={handleStopSessionRecording}
-                style={{
-                  width: '100%', padding: '12px', border: 'none', borderRadius: 8,
-                  background: '#374151', color: 'white', fontSize: 15, fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                녹화 중지
-              </button>
             </div>
           )}
         </div>
