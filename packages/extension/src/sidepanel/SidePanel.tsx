@@ -77,7 +77,10 @@ export function SidePanel() {
 
   useEffect(() => {
     const listener = (message: { type: string }) => {
-      if (message.type === 'RECORDING_STARTED') {
+      if (message.type === 'CLOSE_SIDE_PANEL') {
+        window.close();
+        return;
+      } else if (message.type === 'RECORDING_STARTED') {
         setIsRecording(true);
         setRecordingElapsed(0);
         setView('recording');
