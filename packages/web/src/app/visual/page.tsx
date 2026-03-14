@@ -27,11 +27,11 @@ interface VisualDiff {
   createdAt?: string;
 }
 
-const STATUS_CONFIG = {
-  no_change: { label: '변경 없음', color: 'bg-green-100 text-green-700', icon: '✅' },
-  intentional: { label: '의도적 변경', color: 'bg-yellow-100 text-yellow-700', icon: '🟡' },
-  regression: { label: '회귀 감지', color: 'bg-red-100 text-red-700', icon: '🔴' },
-  mixed: { label: '복합 변경', color: 'bg-orange-100 text-orange-700', icon: '🟠' },
+const STATUS_LABEL: Record<string, { text: string; color: string }> = {
+  no_change: { text: '변경 없음', color: 'text-success-600' },
+  intentional: { text: '의도적 변경', color: 'text-warning-600' },
+  regression: { text: '회귀 감지', color: 'text-accent' },
+  mixed: { text: '복합 변경', color: 'text-warning-600' },
 };
 
 export default function VisualTestPage() {
@@ -92,57 +92,37 @@ export default function VisualTestPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">시각적 테스트</h2>
-        <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-2xl font-bold tracking-tight">시각적 테스트</h2>
+        <button className="bg-text-primary text-surface px-4 py-1.5 rounded text-sm font-medium hover:bg-text-secondary transition-colors">
           전체 비교 실행
         </button>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="mb-6 px-4 py-3 border-l-2 border-accent bg-accent-light text-sm text-text-primary">
           API 연결 오류: {error}
         </div>
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900">
-            {loading ? <LoadingPulse /> : baselines.length}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">전체 베이스라인</div>
-        </div>
-        <div className="bg-white rounded-xl border border-green-200 p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
-            {loading ? <LoadingPulse color="green" /> : noChangeCount}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">변경 없음</div>
-        </div>
-        <div className="bg-white rounded-xl border border-yellow-200 p-4 text-center">
-          <div className="text-2xl font-bold text-yellow-600">
-            {loading ? <LoadingPulse color="yellow" /> : intentionalCount}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">의도적 변경</div>
-        </div>
-        <div className="bg-white rounded-xl border border-red-200 p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">
-            {loading ? <LoadingPulse color="red" /> : regressionCount}
-          </div>
-          <div className="text-xs text-gray-500 mt-1">회귀 감지</div>
-        </div>
+      <div className="grid grid-cols-4 gap-4 mb-10">
+        <StatMini label="전체" value={baselines.length} loading={loading} />
+        <StatMini label="변경 없음" value={noChangeCount} loading={loading} color="text-success-600" />
+        <StatMini label="의도적 변경" value={intentionalCount} loading={loading} color="text-warning-600" />
+        <StatMini label="회귀 감지" value={regressionCount} loading={loading} color="text-accent" />
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
+      <div className="flex gap-0 mb-6 border-b border-border">
         {(['overview', 'baselines', 'history'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-0 py-2 mr-6 text-xs font-medium uppercase tracking-widest transition-colors border-b-2 -mb-px ${
               activeTab === tab
-                ? 'bg-white shadow-sm text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-text-primary border-text-primary'
+                : 'text-text-muted border-transparent hover:text-text-secondary'
             }`}
           >
             {tab === 'overview' ? '개요' : tab === 'baselines' ? '베이스라인 관리' : '비교 히스토리'}
@@ -151,18 +131,16 @@ export default function VisualTestPage() {
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">
-          로딩 중...
-        </div>
+        <div className="py-12 text-center text-text-muted text-sm">로딩 중...</div>
       ) : (
         <>
           {/* Overview Tab */}
           {activeTab === 'overview' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {/* Regressions (Priority) */}
               {regressionCount > 0 && (
                 <section>
-                  <h3 className="text-sm font-semibold text-red-600 uppercase tracking-wider mb-3">
+                  <h3 className="text-xs font-medium uppercase tracking-widest text-accent mb-3 pb-2 border-b border-border">
                     회귀 감지 (우선 확인)
                   </h3>
                   <div className="space-y-2">
@@ -192,7 +170,7 @@ export default function VisualTestPage() {
               {/* Intentional Changes */}
               {intentionalCount > 0 && (
                 <section>
-                  <h3 className="text-sm font-semibold text-yellow-600 uppercase tracking-wider mb-3">
+                  <h3 className="text-xs font-medium uppercase tracking-widest text-warning-600 mb-3 pb-2 border-b border-border">
                     의도적 변경
                   </h3>
                   <div className="space-y-2">
@@ -219,7 +197,7 @@ export default function VisualTestPage() {
               {/* No Changes */}
               {noChangeCount > 0 && (
                 <section>
-                  <h3 className="text-sm font-semibold text-green-600 uppercase tracking-wider mb-3">
+                  <h3 className="text-xs font-medium uppercase tracking-widest text-success-600 mb-3 pb-2 border-b border-border">
                     변경 없음
                   </h3>
                   <div className="space-y-2">
@@ -243,12 +221,9 @@ export default function VisualTestPage() {
               )}
 
               {diffs.length === 0 && baselines.length === 0 && (
-                <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                  <div className="text-4xl mb-4">👁</div>
-                  <p className="text-gray-500 mb-2">아직 베이스라인이 없습니다</p>
-                  <p className="text-sm text-gray-400">
-                    Chrome 확장에서 페이지의 베이스라인 스크린샷을 저장해보세요
-                  </p>
+                <div className="py-12 text-center">
+                  <p className="text-text-secondary text-sm mb-1">아직 베이스라인이 없습니다</p>
+                  <p className="text-text-muted text-xs">Chrome 확장에서 페이지의 베이스라인 스크린샷을 저장해보세요</p>
                 </div>
               )}
             </div>
@@ -256,57 +231,54 @@ export default function VisualTestPage() {
 
           {/* Baselines Tab */}
           {activeTab === 'baselines' && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="border border-border rounded overflow-hidden">
               {baselines.length === 0 ? (
-                <div className="p-12 text-center">
-                  <div className="text-4xl mb-4">📷</div>
-                  <p className="text-gray-500 mb-2">등록된 베이스라인이 없습니다</p>
+                <div className="py-12 text-center">
+                  <p className="text-text-secondary text-sm mb-1">등록된 베이스라인이 없습니다</p>
                 </div>
               ) : (
-                <table className="w-full">
+                <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 bg-gray-50">
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">이름</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">뷰포트</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">상태</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">생성일</th>
-                      <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">액션</th>
+                    <tr className="border-b border-border bg-bg">
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">이름</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">URL</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">뷰포트</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">상태</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-28">생성일</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-16">액션</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-border">
                     {baselines.map((baseline) => {
                       const latestStatus = baselineStatusMap.get(baseline.id) || 'unchanged';
-                      const statusConf = STATUS_CONFIG[latestStatus as keyof typeof STATUS_CONFIG];
+                      const statusConf = STATUS_LABEL[latestStatus];
                       return (
-                        <tr key={baseline.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 text-sm font-medium text-gray-900">{baseline.name}</td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-gray-500 truncate block max-w-xs">
+                        <tr key={baseline.id} className="hover:bg-bg transition-colors">
+                          <td className="px-4 py-3 text-text-primary">{baseline.name}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-text-muted truncate block max-w-xs text-xs">
                               {baseline.page_url || baseline.pageUrl || '-'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
+                          <td className="px-4 py-3 text-xs text-text-muted">
                             {baseline.viewport ? `${baseline.viewport.width}x${baseline.viewport.height}` : '-'}
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3">
                             {statusConf ? (
-                              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusConf.color}`}>
-                                {statusConf.icon} {statusConf.label}
+                              <span className={`text-xs font-medium ${statusConf.color}`}>
+                                {statusConf.text}
                               </span>
                             ) : (
-                              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-gray-100 text-gray-600">
-                                미비교
-                              </span>
+                              <span className="text-xs text-text-muted">미비교</span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
+                          <td className="px-4 py-3 text-xs text-text-muted tabular-nums">
                             {new Date(baseline.created_at || baseline.createdAt || '').toLocaleDateString('ko-KR')}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-4 py-3 text-right">
                             <button
                               onClick={() => handleDeleteBaseline(baseline.id, baseline.name)}
-                              className="text-red-500 hover:text-red-700 text-xs"
+                              className="text-accent hover:underline text-xs"
                             >
                               삭제
                             </button>
@@ -322,59 +294,58 @@ export default function VisualTestPage() {
 
           {/* History Tab */}
           {activeTab === 'history' && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="border border-border rounded overflow-hidden">
               {diffs.length === 0 ? (
-                <div className="p-12 text-center">
-                  <div className="text-4xl mb-4">📊</div>
-                  <p className="text-gray-500 mb-2">비교 히스토리가 없습니다</p>
+                <div className="py-12 text-center">
+                  <p className="text-text-secondary text-sm mb-1">비교 히스토리가 없습니다</p>
                 </div>
               ) : (
-                <table className="w-full">
+                <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 bg-gray-50">
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">베이스라인</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">상태</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">변경수</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">AI 분석</th>
-                      <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">비교일</th>
-                      <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">액션</th>
+                    <tr className="border-b border-border bg-bg">
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">베이스라인</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-28">상태</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-20">변경수</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-20">AI 분석</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-28">비교일</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-20">액션</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-border">
                     {diffs.map((diff) => {
                       const bid = diff.baseline_id || diff.baselineId;
                       const baseline = baselines.find((b) => b.id === bid);
                       const status = diff.overall_status || diff.overallStatus || 'no_change';
-                      const statusConf = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.no_change;
+                      const statusConf = STATUS_LABEL[status] || STATUS_LABEL.no_change;
                       const changeCount = Array.isArray(diff.changes) ? diff.changes.length : 0;
 
                       return (
                         <tr
                           key={diff.id}
-                          className="hover:bg-gray-50 transition-colors cursor-pointer"
+                          className="hover:bg-bg transition-colors cursor-pointer"
                           onClick={() => router.push(`/visual/diff/${diff.id}`)}
                         >
-                          <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                          <td className="px-4 py-3 text-text-primary font-medium">
                             {baseline?.name || bid}
                           </td>
-                          <td className="px-6 py-4">
-                            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusConf.color}`}>
-                              {statusConf.icon} {statusConf.label}
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-medium ${statusConf.color}`}>
+                              {statusConf.text}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">{changeCount}건</td>
-                          <td className="px-6 py-4 text-sm">
-                            <span className={`text-xs ${diff.ai_analysis_status === 'completed' ? 'text-green-600' : 'text-gray-400'}`}>
+                          <td className="px-4 py-3 text-xs text-text-secondary">{changeCount}건</td>
+                          <td className="px-4 py-3 text-xs">
+                            <span className={diff.ai_analysis_status === 'completed' ? 'text-success-600' : 'text-text-muted'}>
                               {diff.ai_analysis_status === 'completed' ? '완료' : diff.ai_analysis_status}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
+                          <td className="px-4 py-3 text-xs text-text-muted tabular-nums">
                             {new Date(diff.created_at || diff.createdAt || '').toLocaleString('ko-KR', {
                               month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
                             })}
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <span className="text-indigo-600 text-xs font-medium">상세 보기 &rarr;</span>
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-text-secondary text-xs font-medium hover:text-text-primary">상세 &rarr;</span>
                           </td>
                         </tr>
                       );
@@ -390,10 +361,6 @@ export default function VisualTestPage() {
   );
 }
 
-function LoadingPulse({ color = 'gray' }: { color?: string }) {
-  return <span className={`inline-block w-8 h-7 bg-${color}-100 rounded animate-pulse`} />;
-}
-
 function DiffRow({
   diff,
   baselineName,
@@ -406,7 +373,7 @@ function DiffRow({
   onClick: () => void;
 }) {
   const status = diff.overall_status || diff.overallStatus || 'no_change';
-  const statusConf = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.no_change;
+  const statusConf = STATUS_LABEL[status] || STATUS_LABEL.no_change;
 
   const regressions = Array.isArray(diff.changes)
     ? diff.changes.filter((c: any) => c.classification === 'regression')
@@ -420,16 +387,27 @@ function DiffRow({
   return (
     <div
       onClick={onClick}
-      className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between hover:border-gray-300 cursor-pointer transition-colors"
+      className="border border-border rounded px-4 py-3 flex items-center justify-between hover:bg-bg cursor-pointer transition-colors"
     >
       <div className="flex items-center gap-3">
-        <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusConf.color}`}>
-          {statusConf.icon} {statusConf.label}
+        <span className={`text-xs font-medium ${statusConf.color}`}>
+          {statusConf.text}
         </span>
-        <span className="text-sm font-medium text-gray-900">{baselineName}</span>
-        <span className="text-xs text-gray-400 truncate max-w-xs">{summary}</span>
+        <span className="text-sm font-medium text-text-primary">{baselineName}</span>
+        <span className="text-xs text-text-muted truncate max-w-xs">{summary}</span>
       </div>
-      <span className="text-indigo-600 text-xs font-medium">상세 &rarr;</span>
+      <span className="text-text-secondary text-xs font-medium">상세 &rarr;</span>
+    </div>
+  );
+}
+
+function StatMini({ label, value, loading, color }: { label: string; value: number; loading: boolean; color?: string }) {
+  return (
+    <div className="border border-border rounded px-4 py-4">
+      <div className={`text-2xl font-bold tracking-tight ${color || 'text-text-primary'}`}>
+        {loading ? <span className="inline-block w-6 h-7 bg-bg rounded animate-pulse" /> : value}
+      </div>
+      <div className="text-xs text-text-muted mt-1">{label}</div>
     </div>
   );
 }

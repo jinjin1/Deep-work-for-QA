@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { bugReportRoutes } from './routes/bug-reports';
-import { sessionRoutes } from './routes/sessions';
 import { baselineRoutes } from './routes/baselines';
 import { visualDiffRoutes } from './routes/visual-diffs';
 import { aiRoutes } from './routes/ai';
@@ -19,7 +18,6 @@ app.get('/health', (c) => c.json({ status: 'ok' }));
 
 // Routes
 app.route('/v1/bug-reports', bugReportRoutes);
-app.route('/v1/sessions', sessionRoutes);
 app.route('/v1/baselines', baselineRoutes);
 app.route('/v1/visual-diffs', visualDiffRoutes);
 app.route('/v1/ai', aiRoutes);

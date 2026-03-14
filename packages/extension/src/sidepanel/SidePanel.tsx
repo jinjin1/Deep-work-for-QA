@@ -22,14 +22,22 @@ interface CaptureData {
 
 type SubmitState = 'idle' | 'submitting' | 'success' | 'error';
 
+const c = {
+  text: '#111111',
+  secondary: '#555555',
+  muted: '#999999',
+  border: '#E5E5E5',
+  bg: '#FAFAFA',
+  surface: '#FFFFFF',
+  accent: '#E63946',
+};
+
 export function SidePanel() {
-  // View state
   const [view, setView] = useState<SidePanelView>('form');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('manual');
 
-  // Form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [severity, setSeverity] = useState<Severity>('major');
@@ -46,36 +54,27 @@ export function SidePanel() {
   const [reproSteps, setReproSteps] = useState<string[] | null>(null);
   const [loadingRepro, setLoadingRepro] = useState(false);
   const [reproError, setReproError] = useState('');
+  const [currentPageUrl, setCurrentPageUrl] = useState('');
 
-  // On mount: check recording status and capture data
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn('[SidePanel] GET_STATUS failed:', chrome.runtime.lastError.message);
-        return;
-      }
-      if (response?.isRecording) {
-        setIsRecording(true);
-        setView('recording');
-      } else {
-        // Not recording — check for existing capture data
-        loadCaptureData();
-      }
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.url) setCurrentPageUrl(tabs[0].url);
     });
-    // Also load any existing screenshot
+
+    chrome.runtime.sendMessage({ type: 'GET_STATUS' }, (response) => {
+      if (chrome.runtime.lastError) return;
+      if (response?.isRecording) { setIsRecording(true); setView('recording'); }
+      else { loadCaptureData(); }
+    });
     loadScreenshotData();
   }, []);
 
-  // Recording timer
   useEffect(() => {
     if (!isRecording) return;
-    const interval = setInterval(() => {
-      setRecordingElapsed((prev) => prev + 1);
-    }, 1000);
+    const interval = setInterval(() => setRecordingElapsed((prev) => prev + 1), 1000);
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Listen for messages from background (e.g., recording state changes)
   useEffect(() => {
     const listener = (message: { type: string }) => {
       if (message.type === 'RECORDING_STARTED') {
@@ -101,11 +100,7 @@ export function SidePanel() {
   const loadCaptureData = useCallback(() => {
     setLoadingCapture(true);
     chrome.runtime.sendMessage({ type: 'GET_CAPTURE_DATA' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn('[SidePanel] GET_CAPTURE_DATA failed:', chrome.runtime.lastError.message);
-        setLoadingCapture(false);
-        return;
-      }
+      if (chrome.runtime.lastError) { setLoadingCapture(false); return; }
       setLoadingCapture(false);
       if (response?.success && response.data) {
         setCaptureData(response.data);
@@ -116,10 +111,7 @@ export function SidePanel() {
 
   const loadScreenshotData = useCallback(() => {
     chrome.storage.local.get('screenshotData', (result) => {
-      if (chrome.runtime.lastError) {
-        console.warn('[SidePanel] Screenshot load failed:', chrome.runtime.lastError.message);
-        return;
-      }
+      if (chrome.runtime.lastError) return;
       if (result.screenshotData?.dataUrl) {
         setScreenshotDataUrl(result.screenshotData.dataUrl);
         if (!captureData) {
@@ -148,11 +140,22 @@ export function SidePanel() {
   const handleStopRecording = () => {
     setIsRecording(false);
     chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
-    // Wait briefly for capture data to arrive, then load it
-    setTimeout(() => {
-      loadCaptureData();
-      setView('form');
-    }, 500);
+    setTimeout(() => { loadCaptureData(); setView('form'); }, 500);
+  };
+
+  const fetchBackgroundLogs = (): Promise<{
+    console_logs: unknown[]; network_logs: unknown[]; url: string; environment: CaptureData['environment'];
+  } | null> => {
+    return new Promise((resolve) => {
+      try {
+        const timeout = setTimeout(() => resolve(null), 5000);
+        chrome.runtime.sendMessage({ type: 'GET_BACKGROUND_LOGS' }, (response) => {
+          clearTimeout(timeout);
+          if (chrome.runtime.lastError || !response?.success || !response?.data) { resolve(null); return; }
+          resolve(response.data);
+        });
+      } catch { resolve(null); }
+    });
   };
 
   const handleTakeScreenshot = () => {
@@ -167,60 +170,48 @@ export function SidePanel() {
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
-
-    setSubmitState('submitting');
-    setSubmitError('');
-    setReproSteps(null);
-    setReproError('');
+    setSubmitState('submitting'); setSubmitError(''); setReproSteps(null); setReproError('');
 
     try {
-      const reportPayload = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        severity,
-        page_url: captureData?.url || 'unknown',
-        environment: captureData?.environment || {},
-        console_logs: captureData?.console_logs || [],
-        network_logs: captureData?.network_logs || [],
-        events: captureData?.events || [],
+      let consoleLogs = captureData?.console_logs || [];
+      let networkLogs = captureData?.network_logs || [];
+      let pageUrl = captureData?.url || currentPageUrl || 'unknown';
+      let environment = captureData?.environment || {
+        browser: navigator.userAgent, viewport: { width: window.screen.width, height: window.screen.height },
+        devicePixelRatio: window.devicePixelRatio, language: navigator.language, platform: navigator.platform,
       };
 
-      const reportResult = await createBugReport(reportPayload);
-      setSubmittedReport(reportResult);
-      setSubmitState('success');
-      setView('success');
+      const bgLogs = await fetchBackgroundLogs();
+      if (bgLogs) {
+        if (!consoleLogs.length) consoleLogs = bgLogs.console_logs || [];
+        if (!networkLogs.length) networkLogs = bgLogs.network_logs || [];
+        if (!captureData?.url && bgLogs.url) pageUrl = bgLogs.url;
+        if (!captureData?.environment && bgLogs.environment) environment = bgLogs.environment;
+      }
 
-      // Generate repro steps via AI
+      const reportResult = await createBugReport({
+        title: title.trim(), description: description.trim() || undefined, severity,
+        page_url: pageUrl, environment, console_logs: consoleLogs, network_logs: networkLogs,
+        events: captureData?.events || [], screenshot_urls: screenshotDataUrl ? [screenshotDataUrl] : [],
+      });
+      setSubmittedReport(reportResult); setSubmitState('success'); setView('success');
+
       setLoadingRepro(true);
       try {
         const reproResult = await generateReproSteps({
-          events: captureData?.events || [],
-          console_logs: captureData?.console_logs || [],
-          page_url: captureData?.url || 'unknown',
-          environment: captureData?.environment || {},
+          events: captureData?.events || [], console_logs: captureData?.console_logs || [],
+          page_url: pageUrl, environment: captureData?.environment || {},
         });
-
-        if (reproResult?.steps) {
-          setReproSteps(reproResult.steps);
-        } else if (reproResult?.repro_steps) {
-          setReproSteps(reproResult.repro_steps);
-        } else if (Array.isArray(reproResult)) {
-          setReproSteps(reproResult as string[]);
-        } else {
-          setReproSteps(null);
-          setReproError('AI 재현 스텝을 생성하지 못했습니다.');
-        }
+        if (reproResult?.steps) setReproSteps(reproResult.steps);
+        else if (reproResult?.repro_steps) setReproSteps(reproResult.repro_steps);
+        else if (Array.isArray(reproResult)) setReproSteps(reproResult as string[]);
+        else { setReproSteps(null); setReproError('AI 재현 스텝을 생성하지 못했습니다.'); }
       } catch (reproErr: unknown) {
         setReproError(reproErr instanceof Error ? reproErr.message : 'AI 재현 스텝 생성 실패');
-      } finally {
-        setLoadingRepro(false);
-      }
+      } finally { setLoadingRepro(false); }
 
-      // Clear stored capture data
       chrome.runtime.sendMessage({ type: 'CLEAR_CAPTURE_DATA' }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SidePanel] CLEAR_CAPTURE_DATA failed:', chrome.runtime.lastError.message);
-        }
+        if (chrome.runtime.lastError) console.warn('[SidePanel] CLEAR_CAPTURE_DATA failed');
       });
     } catch (err: unknown) {
       setSubmitState('error');
@@ -243,6 +234,11 @@ export function SidePanel() {
     setView('form');
   };
 
+  const baseStyle: React.CSSProperties = {
+    padding: 16, maxWidth: 400, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif',
+    background: c.surface, color: c.text,
+  };
+
   const hasAnyCaptureData = captureData || screenshotDataUrl;
 
   // Capture mode badge
@@ -251,11 +247,12 @@ export function SidePanel() {
       return (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 11, color: '#dc2626', background: '#fef2f2',
-          padding: '3px 8px', borderRadius: 10, fontWeight: 500,
+          fontSize: 10, color: c.accent, background: '#FEF0F1',
+          padding: '3px 8px', borderRadius: 4, fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.04em',
         }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626', display: 'inline-block' }} />
-          조작 녹화 완료
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: c.accent, display: 'inline-block' }} />
+          녹화 완료
         </div>
       );
     }
@@ -263,10 +260,11 @@ export function SidePanel() {
       return (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 11, color: '#2563eb', background: '#eff6ff',
-          padding: '3px 8px', borderRadius: 10, fontWeight: 500,
+          fontSize: 10, color: c.secondary, background: c.bg,
+          padding: '3px 8px', borderRadius: 4, fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.04em',
         }}>
-          &#x1F4F7; 스크린샷 첨부됨
+          스크린샷 첨부됨
         </div>
       );
     }
@@ -276,62 +274,39 @@ export function SidePanel() {
   // ===================== RECORDING VIEW =====================
   if (view === 'recording') {
     return (
-      <div style={{ padding: 16, maxWidth: 400 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Deep Work</h2>
-        </div>
-
-        <div style={{
-          textAlign: 'center',
-          padding: 32,
-          background: '#fef2f2',
-          borderRadius: 12,
-          marginBottom: 16,
-        }}>
+      <div style={baseStyle}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, letterSpacing: '-0.02em' }}>Deep Work</div>
+        <div style={{ textAlign: 'center', padding: 32, border: `1px solid ${c.border}`, borderRadius: 4, marginBottom: 16 }}>
           <div style={{
-            display: 'inline-block', width: 20, height: 20,
-            borderRadius: '50%', background: '#dc2626',
-            animation: 'pulse 1s ease-in-out infinite',
-            marginBottom: 8,
+            display: 'inline-block', width: 14, height: 14, borderRadius: '50%', background: c.accent,
+            animation: 'pulse 1s ease-in-out infinite', marginBottom: 8,
           }} />
-          <div style={{ fontSize: 32, fontWeight: 700, color: '#dc2626', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: c.accent, fontFamily: 'monospace', letterSpacing: '0.05em' }}>
             {formatTime(recordingElapsed)}
           </div>
-          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 8 }}>
-            버그를 재현한 후 아래 버튼을 눌러 중지하세요
-          </div>
+          <div style={{ fontSize: 12, color: c.secondary, marginTop: 6 }}>버그를 재현한 후 녹화를 중지하세요</div>
           <div style={{
-            fontSize: 11, color: '#9ca3af', marginTop: 8,
+            fontSize: 10, color: c.muted, marginTop: 8,
             display: 'flex', justifyContent: 'center', gap: 8,
+            textTransform: 'uppercase', letterSpacing: '0.04em',
           }}>
             {['클릭/입력', '콘솔', '네트워크'].map((tag) => (
               <span key={tag} style={{
-                background: 'rgba(255,255,255,0.7)', padding: '2px 8px',
-                borderRadius: 4,
+                background: c.bg, padding: '2px 8px',
+                borderRadius: 4, border: `1px solid ${c.border}`,
               }}>
-                {tag} 기록 중
+                {tag}
               </span>
             ))}
           </div>
         </div>
-
-        <button
-          onClick={handleStopRecording}
-          style={{
-            width: '100%', padding: 14, border: 'none', borderRadius: 8,
-            background: '#374151', color: 'white', fontSize: 15, fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
+        <button onClick={handleStopRecording} style={{
+          width: '100%', padding: 12, border: 'none', borderRadius: 4,
+          background: c.text, color: c.surface, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        }}>
           녹화 중지 & 리포트 작성
         </button>
-
-        <style>{`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-          }
-        `}</style>
+        <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
       </div>
     );
   }
@@ -339,125 +314,98 @@ export function SidePanel() {
   // ===================== SUCCESS VIEW =====================
   if (view === 'success') {
     return (
-      <div style={{ padding: 16, maxWidth: 400 }}>
-        <div style={{
-          textAlign: 'center',
-          padding: 24,
-          background: '#f0fdf4',
-          borderRadius: 12,
-          marginBottom: 16,
-        }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>&#x2705;</div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#16a34a', margin: '0 0 4px 0' }}>
-            리포트 제출 완료
-          </h2>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
-            버그 리포트가 성공적으로 생성되었습니다.
-          </p>
+      <div style={baseStyle}>
+        <div style={{ textAlign: 'center', padding: 24, border: `1px solid ${c.border}`, borderRadius: 4, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#16A34A', marginBottom: 4 }}>리포트 제출 완료</div>
+          <div style={{ fontSize: 12, color: c.muted }}>버그 리포트가 성공적으로 생성되었습니다.</div>
         </div>
 
         {submittedReport && (
-          <div style={{
-            padding: 12, background: '#f9fafb', borderRadius: 8,
-            marginBottom: 16, border: '1px solid #e5e7eb',
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-              {submittedReport.title || title}
-            </div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>
-              ID: {submittedReport.id || 'N/A'}
-            </div>
+          <div style={{ padding: 12, background: c.bg, borderRadius: 4, marginBottom: 16, border: `1px solid ${c.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, color: c.text }}>{submittedReport.title || title}</div>
+            <div style={{ fontSize: 11, color: c.muted, fontFamily: 'monospace' }}>ID: {submittedReport.id || 'N/A'}</div>
           </div>
         )}
 
-        {/* AI Repro Steps */}
-        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>
+        <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 12, marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: c.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             AI 재현 스텝
           </div>
-          {loadingRepro && (
-            <div style={{ fontSize: 13, color: '#6366f1' }}>&#x23F3; 생성 중...</div>
-          )}
-          {reproError && (
-            <div style={{ fontSize: 12, color: '#dc2626', padding: 8, background: '#fef2f2', borderRadius: 6 }}>
-              {reproError}
-            </div>
-          )}
+          {loadingRepro && <div style={{ fontSize: 12, color: c.secondary }}>생성 중...</div>}
+          {reproError && <div style={{ fontSize: 11, color: c.accent, padding: 8, background: '#FEF0F1', borderRadius: 4 }}>{reproError}</div>}
           {reproSteps && reproSteps.length > 0 && (
-            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#374151' }}>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: c.secondary, lineHeight: 1.6 }}>
               {reproSteps.map((step, i) => (
-                <li key={i} style={{ marginBottom: 4 }}>{step}</li>
+                <li key={i} style={{ marginBottom: 2 }}>
+                  {typeof step === 'string' ? step : (step as any).description || `Step ${(step as any).step_number}: ${(step as any).action}`}
+                </li>
               ))}
             </ol>
           )}
           {!loadingRepro && !reproError && (!reproSteps || reproSteps.length === 0) && (
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>재현 스텝 없음</div>
+            <div style={{ fontSize: 11, color: c.muted }}>재현 스텝 없음</div>
           )}
         </div>
 
-        <a
-          href="http://localhost:3000/bug-reports"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'block', textAlign: 'center', padding: 10,
-            background: '#eef2ff', color: '#4f46e5', borderRadius: 8,
-            fontSize: 14, fontWeight: 600, textDecoration: 'none', marginBottom: 8,
-          }}
-        >
-          &#x1F4CA; 대시보드에서 보기
-        </a>
-
-        <button
-          onClick={handleReset}
-          style={{
-            width: '100%', padding: 10, border: '1px solid #d1d5db', borderRadius: 8,
-            background: 'white', fontSize: 14, cursor: 'pointer', color: '#374151',
-          }}
-        >
-          새 리포트 작성
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a
+            href={`${import.meta.env.VITE_WEB_URL || 'http://localhost:3000'}/bug-reports`}
+            target="_blank" rel="noopener noreferrer"
+            style={{
+              flex: 1, textAlign: 'center', padding: 10, background: c.bg, color: c.text,
+              borderRadius: 4, fontSize: 12, fontWeight: 600, textDecoration: 'none', border: `1px solid ${c.border}`,
+            }}
+          >
+            대시보드에서 보기
+          </a>
+          <button onClick={handleReset} style={{
+            flex: 1, padding: 10, background: c.text, color: c.surface,
+            border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}>
+            새 리포트
+          </button>
+        </div>
       </div>
     );
   }
 
   // ===================== FORM VIEW =====================
   return (
-    <div style={{ padding: 16, maxWidth: 400 }}>
+    <div style={baseStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>새 버그 리포트</h2>
+        <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.02em' }}>새 버그 리포트</div>
         {renderCaptureModeBadge()}
       </div>
 
       {/* Capture action bar - show when no capture data exists */}
       {!hasAnyCaptureData && (
         <div style={{
-          padding: 12, background: '#fefce8', borderRadius: 8, marginBottom: 14,
-          border: '1px solid #fef08a',
+          padding: 12, background: c.bg, borderRadius: 4, marginBottom: 14,
+          border: `1px solid ${c.border}`,
         }}>
-          <div style={{ fontSize: 12, color: '#854d0e', marginBottom: 8, fontWeight: 500 }}>
+          <div style={{ fontSize: 11, color: c.secondary, marginBottom: 8 }}>
             캡처 데이터 없이 리포트를 작성합니다. 증거를 첨부하시겠습니까?
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onClick={handleStartRecording}
               style={{
-                flex: 1, padding: '8px 0', border: 'none', borderRadius: 6,
-                background: '#ef4444', color: 'white', fontSize: 12, fontWeight: 600,
+                flex: 1, padding: '8px 0', border: 'none', borderRadius: 4,
+                background: c.accent, color: '#fff', fontSize: 12, fontWeight: 600,
                 cursor: 'pointer',
               }}
             >
-              &#x23FA; 조작 녹화
+              조작 녹화
             </button>
             <button
               onClick={handleTakeScreenshot}
               style={{
-                flex: 1, padding: '8px 0', border: '1px solid #d1d5db', borderRadius: 6,
-                background: 'white', color: '#374151', fontSize: 12, fontWeight: 500,
+                flex: 1, padding: '8px 0', border: `1px solid ${c.border}`, borderRadius: 4,
+                background: c.surface, color: c.text, fontSize: 12, fontWeight: 500,
                 cursor: 'pointer',
               }}
             >
-              &#x1F4F7; 스크린샷
+              스크린샷
             </button>
           </div>
         </div>
@@ -465,54 +413,39 @@ export function SidePanel() {
 
       {/* Title */}
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>제목 *</label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="버그를 간단히 설명하세요"
-          disabled={submitState === 'submitting'}
+        <label style={{ fontSize: 10, fontWeight: 600, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', color: c.muted }}>제목 *</label>
+        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+          placeholder="버그를 간단히 설명하세요" disabled={submitState === 'submitting'}
           style={{
-            width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6,
-            fontSize: 14, boxSizing: 'border-box',
-            opacity: submitState === 'submitting' ? 0.6 : 1,
+            width: '100%', padding: '8px 10px', border: `1px solid ${c.border}`, borderRadius: 4,
+            fontSize: 13, boxSizing: 'border-box', opacity: submitState === 'submitting' ? 0.6 : 1,
+            outline: 'none', color: c.text,
           }}
         />
       </div>
 
-      {/* Description */}
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>설명</label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="추가 설명 (선택)"
-          rows={3}
-          disabled={submitState === 'submitting'}
+        <label style={{ fontSize: 10, fontWeight: 600, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', color: c.muted }}>설명</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)}
+          placeholder="추가 설명 (선택)" rows={3} disabled={submitState === 'submitting'}
           style={{
-            width: '100%', padding: 8, border: '1px solid #d1d5db', borderRadius: 6,
-            fontSize: 14, resize: 'vertical', boxSizing: 'border-box',
-            opacity: submitState === 'submitting' ? 0.6 : 1,
+            width: '100%', padding: '8px 10px', border: `1px solid ${c.border}`, borderRadius: 4,
+            fontSize: 13, resize: 'vertical', boxSizing: 'border-box', opacity: submitState === 'submitting' ? 0.6 : 1,
+            outline: 'none', color: c.text, fontFamily: 'inherit',
           }}
         />
       </div>
 
-      {/* Severity */}
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>심각도</label>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <label style={{ fontSize: 10, fontWeight: 600, display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em', color: c.muted }}>심각도</label>
+        <div style={{ display: 'flex', gap: 6 }}>
           {(['critical', 'major', 'minor', 'trivial'] as Severity[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSeverity(s)}
-              disabled={submitState === 'submitting'}
+            <button key={s} onClick={() => setSeverity(s)} disabled={submitState === 'submitting'}
               style={{
-                padding: '4px 10px', border: '1px solid', borderRadius: 6, cursor: 'pointer', fontSize: 12,
-                borderColor: severity === s ? '#6366f1' : '#d1d5db',
-                background: severity === s ? '#eef2ff' : 'white',
-                color: severity === s ? '#4f46e5' : '#374151',
-                fontWeight: severity === s ? 600 : 400,
-                opacity: submitState === 'submitting' ? 0.6 : 1,
+                padding: '4px 10px', border: `1px solid ${severity === s ? c.text : c.border}`, borderRadius: 4,
+                cursor: 'pointer', fontSize: 11, background: severity === s ? c.text : c.surface,
+                color: severity === s ? c.surface : c.secondary, fontWeight: severity === s ? 600 : 400,
+                opacity: submitState === 'submitting' ? 0.6 : 1, transition: 'all 0.15s',
               }}
             >
               {s === 'critical' ? 'Critical' : s === 'major' ? 'Major' : s === 'minor' ? 'Minor' : 'Trivial'}
@@ -521,94 +454,76 @@ export function SidePanel() {
         </div>
       </div>
 
-      {/* Screenshot preview */}
       {screenshotDataUrl && (
-        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280' }}>&#x1F4F7; 스크린샷</div>
+        <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: c.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>스크린샷</div>
             <button
               onClick={() => {
                 setScreenshotDataUrl(null);
                 chrome.storage.local.remove('screenshotData');
                 if (!captureData) setCaptureMode('manual');
               }}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 11, color: '#9ca3af',
-              }}
-            >
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: c.muted, textDecoration: 'underline' }}>
               삭제
             </button>
           </div>
-          <img
-            src={screenshotDataUrl}
-            alt="Screenshot"
-            style={{
-              width: '100%', borderRadius: 6, border: '1px solid #e5e7eb',
-              cursor: 'pointer',
-            }}
+          <img src={screenshotDataUrl} alt="Screenshot"
+            style={{ width: '100%', borderRadius: 4, border: `1px solid ${c.border}`, cursor: 'pointer' }}
             onClick={() => window.open(screenshotDataUrl, '_blank')}
           />
         </div>
       )}
 
       {/* Auto-collected data */}
-      {(captureData || loadingCapture) && (
-        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>
-            &#x23FA; 녹화 데이터
+      <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: c.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>자동 수집 데이터</div>
+        {loadingCapture ? (
+          <div style={{ fontSize: 11, color: c.muted }}>데이터 로딩 중...</div>
+        ) : captureData ? (
+          <div style={{ fontSize: 11, color: c.secondary, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span>환경: {captureData.environment?.viewport ? `${captureData.environment.viewport.width}x${captureData.environment.viewport.height}` : '수집 완료'}</span>
+            <span>이벤트: {(captureData.events as unknown[])?.length || 0}개</span>
+            <span>
+              콘솔: {(captureData.console_logs as unknown[])?.length || 0}개
+              {(() => {
+                const logs = captureData.console_logs as { level?: string }[];
+                const errors = logs?.filter(l => l.level === 'error').length || 0;
+                return errors ? ` (${errors} errors)` : '';
+              })()}
+            </span>
+            <span>
+              네트워크: {(captureData.network_logs as unknown[])?.length || 0}개
+              {(() => {
+                const logs = captureData.network_logs as { status?: number }[];
+                const failed = logs?.filter(l => !l.status || l.status >= 400).length || 0;
+                return failed ? ` (${failed} failed)` : '';
+              })()}
+            </span>
           </div>
-          {loadingCapture ? (
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>&#x23F3; 데이터 로딩 중...</div>
-          ) : captureData ? (
-            <div style={{ fontSize: 12, color: '#374151', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span>
-                &#x1F5A5; 환경: {captureData.environment?.viewport
-                  ? `${captureData.environment.viewport.width}x${captureData.environment.viewport.height}`
-                  : '수집 완료'}
-              </span>
-              <span>&#x1F4CB; 이벤트: {(captureData.events as unknown[])?.length || 0}개 수집</span>
-              <span>&#x1F6A8; 콘솔 로그: {(captureData.console_logs as unknown[])?.length || 0}개 수집</span>
-              <span>&#x1F310; 네트워크: {(captureData.network_logs as unknown[])?.length || 0}개 수집</span>
-              <span style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-                URL: {captureData.url ? captureData.url.slice(0, 50) + (captureData.url.length > 50 ? '...' : '') : 'N/A'}
-              </span>
-            </div>
-          ) : null}
-        </div>
-      )}
+        ) : (
+          <div style={{ fontSize: 11, color: c.muted }}>수집된 데이터 없음. 녹화를 시작하세요.</div>
+        )}
+      </div>
 
-      {/* Linear checkbox */}
       <div style={{ marginBottom: 16 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-          <input
-            type="checkbox"
-            checked={sendToLinear}
-            onChange={(e) => setSendToLinear(e.target.checked)}
-            disabled={submitState === 'submitting'}
-          />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: c.secondary }}>
+          <input type="checkbox" checked={sendToLinear} onChange={(e) => setSendToLinear(e.target.checked)} disabled={submitState === 'submitting'} />
           Linear Issue 생성
         </label>
       </div>
 
-      {/* Error message */}
       {submitState === 'error' && submitError && (
-        <div style={{
-          padding: 10, background: '#fef2f2', border: '1px solid #fecaca',
-          borderRadius: 8, marginBottom: 12, fontSize: 13, color: '#dc2626',
-        }}>
+        <div style={{ padding: 10, background: '#FEF0F1', borderLeft: `2px solid ${c.accent}`, marginBottom: 12, fontSize: 12, color: c.accent }}>
           {submitError}
         </div>
       )}
 
-      {/* Submit button */}
-      <button
-        onClick={handleSubmit}
-        disabled={!title.trim() || submitState === 'submitting'}
+      <button onClick={handleSubmit} disabled={!title.trim() || submitState === 'submitting'}
         style={{
-          width: '100%', padding: 12, border: 'none', borderRadius: 8,
-          background: !title.trim() || submitState === 'submitting' ? '#d1d5db' : '#4f46e5',
-          color: 'white', fontSize: 15, fontWeight: 600,
+          width: '100%', padding: 12, border: 'none', borderRadius: 4,
+          background: !title.trim() || submitState === 'submitting' ? c.border : c.text,
+          color: c.surface, fontSize: 13, fontWeight: 600,
           cursor: !title.trim() || submitState === 'submitting' ? 'not-allowed' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
         }}
@@ -616,23 +531,16 @@ export function SidePanel() {
         {submitState === 'submitting' ? (
           <>
             <span style={{
-              display: 'inline-block', width: 16, height: 16,
-              border: '2px solid rgba(255,255,255,0.3)',
-              borderTopColor: 'white', borderRadius: '50%',
-              animation: 'spin 0.8s linear infinite',
+              display: 'inline-block', width: 14, height: 14,
+              border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white',
+              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
             }} />
             제출 중...
           </>
-        ) : (
-          '리포트 생성'
-        )}
+        ) : '리포트 생성'}
       </button>
 
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
