@@ -257,134 +257,146 @@ export default function BugReportDetailPage() {
       </Section>
 
       {/* Console Logs */}
-      {report.consoleLogs && report.consoleLogs.length > 0 && (
-        <div className="mb-8">
-          <button
-            className="w-full flex items-center justify-between text-left py-3 border-b border-border"
-            onClick={() => setShowConsoleLogs(!showConsoleLogs)}
-          >
-            <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
-              콘솔 로그 ({report.consoleLogs.length})
-            </span>
-            <span className="text-text-muted text-sm">{showConsoleLogs ? '−' : '+'}</span>
-          </button>
-          {showConsoleLogs && (
-            <div className="bg-gray-900 p-4 max-h-80 overflow-y-auto rounded-b">
-              <div className="space-y-1 font-mono text-xs">
-                {report.consoleLogs.map((log, index) => (
-                  <div key={index} className="group">
-                    <div className="flex gap-2">
-                      {log.timestamp != null && (
-                        <span className="shrink-0 text-gray-600 tabular-nums">
-                          {(log.timestamp / 1000).toFixed(1)}s
+      <div className="mb-8">
+        <button
+          className="w-full flex items-center justify-between text-left py-3 border-b border-border"
+          onClick={() => setShowConsoleLogs(!showConsoleLogs)}
+        >
+          <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
+            콘솔 로그 ({report.consoleLogs?.length || 0})
+          </span>
+          <span className="text-text-muted text-sm">{showConsoleLogs ? '−' : '+'}</span>
+        </button>
+        {showConsoleLogs && (
+          <div>
+            {report.consoleLogs && report.consoleLogs.length > 0 ? (
+              <div className="bg-gray-900 p-4 max-h-80 overflow-y-auto rounded-b">
+                <div className="space-y-1 font-mono text-xs">
+                  {report.consoleLogs.map((log, index) => (
+                    <div key={index} className="group">
+                      <div className="flex gap-2">
+                        {log.timestamp != null && (
+                          <span className="shrink-0 text-gray-600 tabular-nums">
+                            {(log.timestamp / 1000).toFixed(1)}s
+                          </span>
+                        )}
+                        <span className={`shrink-0 uppercase font-bold ${consoleLevelColor[log.level] || 'text-gray-400'}`}>
+                          [{log.level}]
                         </span>
+                        <span className="text-gray-300 break-all">{log.message}</span>
+                      </div>
+                      {log.stack && (
+                        <pre className="ml-12 mt-0.5 text-gray-500 text-[10px] whitespace-pre-wrap hidden group-hover:block">
+                          {log.stack}
+                        </pre>
                       )}
-                      <span className={`shrink-0 uppercase font-bold ${consoleLevelColor[log.level] || 'text-gray-400'}`}>
-                        [{log.level}]
-                      </span>
-                      <span className="text-gray-300 break-all">{log.message}</span>
                     </div>
-                    {log.stack && (
-                      <pre className="ml-12 mt-0.5 text-gray-500 text-[10px] whitespace-pre-wrap hidden group-hover:block">
-                        {log.stack}
-                      </pre>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            ) : (
+              <div className="py-6 text-center text-sm text-text-muted">
+                콘솔 로그가 수집되지 않았습니다
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Network Logs */}
-      {report.networkLogs && report.networkLogs.length > 0 && (() => {
-        const allLogs = report.networkLogs.map((log) => ({
-          ...log,
-          _url: log.url || log.name || '',
-          _status: log.status ?? log.responseStatus ?? 0,
-          _method: log.method || 'GET',
-          _type: log.type || log.initiatorType || '',
-        }));
+      <div className="mb-8">
+        <button
+          className="w-full flex items-center justify-between text-left py-3 border-b border-border"
+          onClick={() => setShowNetworkLogs(!showNetworkLogs)}
+        >
+          <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
+            네트워크 로그 ({report.networkLogs?.length || 0})
+          </span>
+          <span className="text-text-muted text-sm">{showNetworkLogs ? '−' : '+'}</span>
+        </button>
+        {showNetworkLogs && (
+          <div>
+            {report.networkLogs && report.networkLogs.length > 0 ? (() => {
+              const allLogs = report.networkLogs.map((log) => ({
+                ...log,
+                _url: log.url || log.name || '',
+                _status: log.status ?? log.responseStatus ?? 0,
+                _method: log.method || 'GET',
+                _type: log.type || log.initiatorType || '',
+              }));
 
-        const importantLogs = allLogs.filter((l) => {
-          const isApiCall = l._type === 'fetch' || l._type === 'xhr';
-          const isFailed = l._status === 0 || l._status >= 400;
-          const isSlow = (l.duration || 0) > 1000;
-          return isApiCall || isFailed || isSlow;
-        });
+              const importantLogs = allLogs.filter((l) => {
+                const isApiCall = l._type === 'fetch' || l._type === 'xhr';
+                const isFailed = l._status === 0 || l._status >= 400;
+                const isSlow = (l.duration || 0) > 1000;
+                return isApiCall || isFailed || isSlow;
+              });
 
-        const displayLogs = showAllNetworkLogs ? allLogs : importantLogs;
-        const hiddenCount = allLogs.length - importantLogs.length;
+              const displayLogs = showAllNetworkLogs ? allLogs : importantLogs;
+              const hiddenCount = allLogs.length - importantLogs.length;
 
-        return (
-        <div className="mb-8">
-          <button
-            className="w-full flex items-center justify-between text-left py-3 border-b border-border"
-            onClick={() => setShowNetworkLogs(!showNetworkLogs)}
-          >
-            <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
-              네트워크 로그 ({importantLogs.length}{hiddenCount > 0 ? ` / ${allLogs.length}` : ''})
-            </span>
-            <span className="text-text-muted text-sm">{showNetworkLogs ? '−' : '+'}</span>
-          </button>
-          {showNetworkLogs && (
-            <div>
-              <div className="px-4 py-2 bg-bg border-b border-border flex items-center justify-between">
-                <span className="text-xs text-text-muted">
-                  {showAllNetworkLogs
-                    ? `전체 ${allLogs.length}개`
-                    : `주요 ${importantLogs.length}개 (${hiddenCount}개 숨김)`}
-                </span>
-                {hiddenCount > 0 && (
-                  <button
-                    onClick={() => setShowAllNetworkLogs(!showAllNetworkLogs)}
-                    className="text-xs text-text-secondary hover:text-text-primary underline underline-offset-2"
-                  >
-                    {showAllNetworkLogs ? '주요만' : '전체'}
-                  </button>
-                )}
+              return (
+                <>
+                  <div className="px-4 py-2 bg-bg border-b border-border flex items-center justify-between">
+                    <span className="text-xs text-text-muted">
+                      {showAllNetworkLogs
+                        ? `전체 ${allLogs.length}개`
+                        : `주요 ${importantLogs.length}개 (${hiddenCount}개 숨김)`}
+                    </span>
+                    {hiddenCount > 0 && (
+                      <button
+                        onClick={() => setShowAllNetworkLogs(!showAllNetworkLogs)}
+                        className="text-xs text-text-secondary hover:text-text-primary underline underline-offset-2"
+                      >
+                        {showAllNetworkLogs ? '주요만' : '전체'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-xs table-fixed">
+                    <thead>
+                      <tr className="bg-bg border-b border-border">
+                        <th className="text-left px-3 py-2 font-medium text-text-muted w-14">Method</th>
+                        <th className="text-left px-3 py-2 font-medium text-text-muted">URL</th>
+                        <th className="text-left px-3 py-2 font-medium text-text-muted w-14">Status</th>
+                        <th className="text-left px-3 py-2 font-medium text-text-muted w-12">Type</th>
+                        <th className="text-left px-3 py-2 font-medium text-text-muted w-16">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border font-mono">
+                      {displayLogs.map((log, index) => (
+                        <tr key={index} className={`hover:bg-bg ${log._status === 0 || log._status >= 400 ? 'bg-accent-light' : ''}`}>
+                          <td className="px-3 py-2 font-bold text-text-secondary">{log._method}</td>
+                          <td className="px-3 py-2 text-text-muted truncate" title={log._url}>{log._url}</td>
+                          <td className="px-3 py-2">
+                            <span className={`font-bold ${
+                              log._status === 0 || log._status >= 400 ? 'text-accent' : log._status >= 300 ? 'text-warning-600' : 'text-success-600'
+                            }`}>
+                              {log._status === 0 ? 'Fail' : log._status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-text-muted">{log._type}</td>
+                          <td className="px-3 py-2 text-text-muted">
+                            {log.duration ? `${log.duration}ms` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                  {displayLogs.length === 0 && (
+                    <div className="py-6 text-center text-sm text-text-muted">주요 네트워크 요청 없음</div>
+                  )}
+                </>
+              );
+            })() : (
+              <div className="py-6 text-center text-sm text-text-muted">
+                네트워크 로그가 수집되지 않았습니다
               </div>
-              <div className="overflow-x-auto">
-              <table className="w-full text-xs table-fixed">
-                <thead>
-                  <tr className="bg-bg border-b border-border">
-                    <th className="text-left px-3 py-2 font-medium text-text-muted w-14">Method</th>
-                    <th className="text-left px-3 py-2 font-medium text-text-muted">URL</th>
-                    <th className="text-left px-3 py-2 font-medium text-text-muted w-14">Status</th>
-                    <th className="text-left px-3 py-2 font-medium text-text-muted w-12">Type</th>
-                    <th className="text-left px-3 py-2 font-medium text-text-muted w-16">Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border font-mono">
-                  {displayLogs.map((log, index) => (
-                    <tr key={index} className={`hover:bg-bg ${log._status === 0 || log._status >= 400 ? 'bg-accent-light' : ''}`}>
-                      <td className="px-3 py-2 font-bold text-text-secondary">{log._method}</td>
-                      <td className="px-3 py-2 text-text-muted truncate" title={log._url}>{log._url}</td>
-                      <td className="px-3 py-2">
-                        <span className={`font-bold ${
-                          log._status === 0 || log._status >= 400 ? 'text-accent' : log._status >= 300 ? 'text-warning-600' : 'text-success-600'
-                        }`}>
-                          {log._status === 0 ? 'Fail' : log._status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-text-muted">{log._type}</td>
-                      <td className="px-3 py-2 text-text-muted">
-                        {log.duration ? `${log.duration}ms` : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-              {displayLogs.length === 0 && (
-                <div className="py-6 text-center text-sm text-text-muted">주요 네트워크 요청 없음</div>
-              )}
-            </div>
-          )}
-        </div>
-        );
-      })()}
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
