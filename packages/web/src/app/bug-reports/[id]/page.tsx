@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { fetchBugReport } from '@/lib/api';
+import { fetchBugReport, updateBugReport } from '@/lib/api';
 
 interface ConsoleLog {
   level: string;
   message: string;
   timestamp?: number;
+  stack?: string;
 }
 
 interface NetworkLog {
@@ -16,6 +17,10 @@ interface NetworkLog {
   status: number;
   duration?: number;
   type?: string;
+  transferSize?: number;
+  name?: string;
+  initiatorType?: string;
+  responseStatus?: number;
 }
 
 interface BugReportDetail {
@@ -28,6 +33,7 @@ interface BugReportDetail {
   environment: Record<string, any>;
   consoleLogs: ConsoleLog[];
   networkLogs: NetworkLog[];
+  screenshotUrls: string[];
   reproSteps: any[] | null;
   aiSummary: string | null;
   aiAnalysisStatus: string;
@@ -35,18 +41,18 @@ interface BugReportDetail {
   updatedAt: string;
 }
 
-const severityColor: Record<string, string> = {
-  critical: 'bg-red-100 text-red-700 border-red-200',
-  major: 'bg-orange-100 text-orange-700 border-orange-200',
-  minor: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  trivial: 'bg-gray-100 text-gray-600 border-gray-200',
+const severityStyle: Record<string, string> = {
+  critical: 'text-accent font-medium',
+  major: 'text-text-primary',
+  minor: 'text-text-secondary',
+  trivial: 'text-text-muted',
 };
 
-const statusColor: Record<string, string> = {
-  open: 'bg-blue-100 text-blue-700 border-blue-200',
-  in_progress: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  resolved: 'bg-green-100 text-green-700 border-green-200',
-  closed: 'bg-gray-100 text-gray-600 border-gray-200',
+const statusStyle: Record<string, string> = {
+  open: 'text-text-primary',
+  in_progress: 'text-warning-600',
+  resolved: 'text-success-600',
+  closed: 'text-text-muted',
 };
 
 const consoleLevelColor: Record<string, string> = {
@@ -58,10 +64,10 @@ const consoleLevelColor: Record<string, string> = {
 };
 
 const aiStatusLabel: Record<string, { text: string; color: string }> = {
-  pending: { text: '대기 중', color: 'text-gray-500' },
-  processing: { text: '분석 중...', color: 'text-yellow-600' },
-  completed: { text: '완료', color: 'text-green-600' },
-  failed: { text: '실패', color: 'text-red-600' },
+  pending: { text: '대기 중', color: 'text-text-muted' },
+  processing: { text: '분석 중...', color: 'text-warning-600' },
+  completed: { text: '완료', color: 'text-success-600' },
+  failed: { text: '실패', color: 'text-accent' },
 };
 
 export default function BugReportDetailPage() {
@@ -73,12 +79,26 @@ export default function BugReportDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showConsoleLogs, setShowConsoleLogs] = useState(false);
   const [showNetworkLogs, setShowNetworkLogs] = useState(false);
+  const [showAllNetworkLogs, setShowAllNetworkLogs] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!report || updatingStatus) return;
+    setUpdatingStatus(true);
+    try {
+      await updateBugReport(id, { status: newStatus });
+      setReport({ ...report, status: newStatus, updatedAt: new Date().toISOString() });
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
 
   useEffect(() => {
     async function loadReport() {
       try {
         const response = await fetchBugReport(id);
-        // API returns { data: {...}, meta: {...} }
         setReport(response.data);
         setError(null);
       } catch (err) {
@@ -94,7 +114,7 @@ export default function BugReportDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-gray-400">로딩 중...</div>
+        <div className="text-text-muted text-sm">로딩 중...</div>
       </div>
     );
   }
@@ -102,14 +122,11 @@ export default function BugReportDetailPage() {
   if (error || !report) {
     return (
       <div>
-        <a
-          href="/bug-reports"
-          className="text-sm text-blue-600 hover:text-blue-800 mb-4 inline-block"
-        >
-          &larr; 버그 리포트 목록으로
+        <a href="/bug-reports" className="text-sm text-text-secondary hover:text-text-primary mb-4 inline-block">
+          &larr; 목록으로
         </a>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <p className="text-red-700">{error || '버그 리포트를 찾을 수 없습니다'}</p>
+        <div className="border-l-2 border-accent bg-accent-light px-4 py-3 text-sm">
+          {error || '버그 리포트를 찾을 수 없습니다'}
         </div>
       </div>
     );
@@ -124,135 +141,109 @@ export default function BugReportDetailPage() {
 
   return (
     <div>
-      <a
-        href="/bug-reports"
-        className="text-sm text-blue-600 hover:text-blue-800 mb-4 inline-block"
-      >
-        &larr; 버그 리포트 목록으로
+      <a href="/bug-reports" className="text-sm text-text-secondary hover:text-text-primary mb-6 inline-block">
+        &larr; 목록으로
       </a>
 
       {/* Header */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">{report.title}</h2>
-          <div className="flex gap-2 shrink-0 ml-4">
-            <span
-              className={`text-sm px-3 py-1 rounded-full font-medium border ${severityColor[report.severity] || 'bg-gray-100 text-gray-600 border-gray-200'}`}
-            >
-              {report.severity}
-            </span>
-            <span
-              className={`text-sm px-3 py-1 rounded-full font-medium border ${statusColor[report.status] || 'bg-gray-100 text-gray-600 border-gray-200'}`}
-            >
-              {report.status}
-            </span>
+      <header className="mb-8">
+        <div className="flex items-start justify-between mb-3">
+          <h2 className="text-2xl font-bold tracking-tight">{report.title}</h2>
+          <div className="flex gap-3 shrink-0 ml-4 text-xs">
+            <span className={severityStyle[report.severity] || 'text-text-muted'}>{report.severity}</span>
+            <span className={statusStyle[report.status] || 'text-text-muted'}>{report.status}</span>
           </div>
         </div>
 
         {report.description && (
-          <p className="text-gray-700 mb-4 whitespace-pre-wrap">{report.description}</p>
+          <p className="text-text-secondary text-sm mb-4 whitespace-pre-wrap leading-relaxed">{report.description}</p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-gray-500">Page URL:</span>{' '}
+        <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm border-t border-border pt-4">
+          <Detail label="Page URL">
             {report.pageUrl ? (
-              <a
-                href={report.pageUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 break-all"
-              >
+              <a href={report.pageUrl} target="_blank" rel="noopener noreferrer" className="text-text-secondary hover:text-text-primary underline underline-offset-2 break-all">
                 {report.pageUrl}
               </a>
-            ) : (
-              <span className="text-gray-400">-</span>
-            )}
-          </div>
-          <div>
-            <span className="text-gray-500">Created:</span>{' '}
-            <span className="text-gray-900">
-              {new Date(report.createdAt).toLocaleString('ko-KR')}
-            </span>
-          </div>
-          {report.updatedAt && (
-            <div>
-              <span className="text-gray-500">Updated:</span>{' '}
-              <span className="text-gray-900">
-                {new Date(report.updatedAt).toLocaleString('ko-KR')}
-              </span>
-            </div>
-          )}
-          <div>
-            <span className="text-gray-500">ID:</span>{' '}
-            <span className="text-gray-400 font-mono text-xs">{report.id}</span>
+            ) : '—'}
+          </Detail>
+          <Detail label="Created">{new Date(report.createdAt).toLocaleString('ko-KR')}</Detail>
+          {report.updatedAt && <Detail label="Updated">{new Date(report.updatedAt).toLocaleString('ko-KR')}</Detail>}
+          <Detail label="ID"><span className="font-mono text-xs text-text-muted">{report.id}</span></Detail>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-border">
+          <span className="text-xs uppercase tracking-widest text-text-muted mr-3">상태 변경</span>
+          <div className="inline-flex gap-1.5 mt-1">
+            {(['open', 'in_progress', 'resolved', 'closed'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => handleStatusChange(s)}
+                disabled={report.status === s || updatingStatus}
+                className={`text-xs px-3 py-1 rounded border transition-colors ${
+                  report.status === s
+                    ? 'bg-text-primary text-surface border-text-primary'
+                    : 'bg-surface text-text-secondary border-border hover:border-text-primary'
+                } ${updatingStatus ? 'opacity-50' : ''}`}
+              >
+                {s === 'open' ? 'Open' : s === 'in_progress' ? 'In Progress' : s === 'resolved' ? 'Resolved' : 'Closed'}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
+      </header>
 
       {/* Environment */}
       {env && Object.keys(env).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <h3 className="text-lg font-semibold mb-4">🖥️ 환경 정보</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            {env.browser && (
-              <div>
-                <span className="text-gray-500">Browser:</span>{' '}
-                <span className="text-gray-900">{env.browser}</span>
-              </div>
-            )}
-            {env.platform && (
-              <div>
-                <span className="text-gray-500">Platform:</span>{' '}
-                <span className="text-gray-900">{env.platform}</span>
-              </div>
-            )}
-            {viewportStr && (
-              <div>
-                <span className="text-gray-500">Viewport:</span>{' '}
-                <span className="text-gray-900">{viewportStr}</span>
-              </div>
-            )}
-            {env.devicePixelRatio && (
-              <div>
-                <span className="text-gray-500">DPR:</span>{' '}
-                <span className="text-gray-900">{env.devicePixelRatio}x</span>
-              </div>
-            )}
-            {env.language && (
-              <div>
-                <span className="text-gray-500">Language:</span>{' '}
-                <span className="text-gray-900">{env.language}</span>
-              </div>
-            )}
+        <Section title="환경 정보">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            {env.browser && <Detail label="Browser">{env.browser}</Detail>}
+            {env.platform && <Detail label="Platform">{env.platform}</Detail>}
+            {viewportStr && <Detail label="Viewport">{viewportStr}</Detail>}
+            {env.devicePixelRatio && <Detail label="DPR">{env.devicePixelRatio}x</Detail>}
+            {env.language && <Detail label="Language">{env.language}</Detail>}
           </div>
-        </div>
+        </Section>
+      )}
+
+      {/* Screenshots */}
+      {report.screenshotUrls && report.screenshotUrls.length > 0 && (
+        <Section title="스크린샷">
+          <div className="grid grid-cols-1 gap-4">
+            {report.screenshotUrls.map((url, index) => (
+              <a key={index} href={url} target="_blank" rel="noopener noreferrer">
+                <img
+                  src={url}
+                  alt={`Screenshot ${index + 1}`}
+                  className="w-full rounded border border-border hover:opacity-90 transition-opacity"
+                />
+              </a>
+            ))}
+          </div>
+        </Section>
       )}
 
       {/* AI Analysis */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h3 className="text-lg font-semibold mb-4">🤖 AI 분석</h3>
-
-        <div className="mb-4">
-          <span className="text-sm text-gray-500">분석 상태: </span>
-          <span className={`text-sm font-medium ${aiStatusLabel[report.aiAnalysisStatus]?.color || 'text-gray-600'}`}>
+      <Section title="AI 분석">
+        <div className="mb-3 text-sm">
+          <span className="text-text-muted">분석 상태: </span>
+          <span className={`font-medium ${aiStatusLabel[report.aiAnalysisStatus]?.color || 'text-text-muted'}`}>
             {aiStatusLabel[report.aiAnalysisStatus]?.text || report.aiAnalysisStatus}
           </span>
         </div>
 
         {report.aiSummary && (
-          <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <h4 className="text-sm font-medium text-gray-700 mb-1">요약</h4>
-            <p className="text-gray-600 text-sm">{report.aiSummary}</p>
+          <div className="mb-4 px-4 py-3 border-l-2 border-border bg-bg text-sm text-text-secondary leading-relaxed">
+            {report.aiSummary}
           </div>
         )}
 
         {report.reproSteps && report.reproSteps.length > 0 && (
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">재현 단계</h4>
-            <ol className="list-decimal list-inside space-y-2">
+            <div className="text-xs uppercase tracking-widest text-text-muted mb-2">재현 단계</div>
+            <ol className="list-decimal list-inside space-y-1.5">
               {report.reproSteps.map((step: any, index: number) => (
-                <li key={index} className="text-sm text-gray-600">
+                <li key={index} className="text-sm text-text-secondary">
                   {typeof step === 'string' ? step : step.description || `Step ${step.step_number}: ${step.action}`}
                 </li>
               ))}
@@ -261,33 +252,43 @@ export default function BugReportDetailPage() {
         )}
 
         {report.aiAnalysisStatus === 'completed' && !report.reproSteps && !report.aiSummary && (
-          <div className="text-sm text-gray-400">분석 결과 없음</div>
+          <div className="text-sm text-text-muted">분석 결과 없음</div>
         )}
-      </div>
+      </Section>
 
       {/* Console Logs */}
       {report.consoleLogs && report.consoleLogs.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+        <div className="mb-8">
           <button
-            className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+            className="w-full flex items-center justify-between text-left py-3 border-b border-border"
             onClick={() => setShowConsoleLogs(!showConsoleLogs)}
           >
-            <h3 className="text-lg font-semibold">
-              🚨 콘솔 로그 ({report.consoleLogs.length})
-            </h3>
-            <span className="text-gray-400 text-xl">{showConsoleLogs ? '−' : '+'}</span>
+            <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
+              콘솔 로그 ({report.consoleLogs.length})
+            </span>
+            <span className="text-text-muted text-sm">{showConsoleLogs ? '−' : '+'}</span>
           </button>
           {showConsoleLogs && (
-            <div className="border-t border-gray-200 bg-gray-900 p-4 max-h-96 overflow-y-auto">
+            <div className="bg-gray-900 p-4 max-h-80 overflow-y-auto rounded-b">
               <div className="space-y-1 font-mono text-xs">
                 {report.consoleLogs.map((log, index) => (
-                  <div key={index} className="flex gap-2">
-                    <span
-                      className={`shrink-0 uppercase font-bold ${consoleLevelColor[log.level] || 'text-gray-400'}`}
-                    >
-                      [{log.level}]
-                    </span>
-                    <span className="text-gray-300 break-all">{log.message}</span>
+                  <div key={index} className="group">
+                    <div className="flex gap-2">
+                      {log.timestamp != null && (
+                        <span className="shrink-0 text-gray-600 tabular-nums">
+                          {(log.timestamp / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                      <span className={`shrink-0 uppercase font-bold ${consoleLevelColor[log.level] || 'text-gray-400'}`}>
+                        [{log.level}]
+                      </span>
+                      <span className="text-gray-300 break-all">{log.message}</span>
+                    </div>
+                    {log.stack && (
+                      <pre className="ml-12 mt-0.5 text-gray-500 text-[10px] whitespace-pre-wrap hidden group-hover:block">
+                        {log.stack}
+                      </pre>
+                    )}
                   </div>
                 ))}
               </div>
@@ -297,63 +298,113 @@ export default function BugReportDetailPage() {
       )}
 
       {/* Network Logs */}
-      {report.networkLogs && report.networkLogs.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+      {report.networkLogs && report.networkLogs.length > 0 && (() => {
+        const allLogs = report.networkLogs.map((log) => ({
+          ...log,
+          _url: log.url || log.name || '',
+          _status: log.status ?? log.responseStatus ?? 0,
+          _method: log.method || 'GET',
+          _type: log.type || log.initiatorType || '',
+        }));
+
+        const importantLogs = allLogs.filter((l) => {
+          const isApiCall = l._type === 'fetch' || l._type === 'xhr';
+          const isFailed = l._status === 0 || l._status >= 400;
+          const isSlow = (l.duration || 0) > 1000;
+          return isApiCall || isFailed || isSlow;
+        });
+
+        const displayLogs = showAllNetworkLogs ? allLogs : importantLogs;
+        const hiddenCount = allLogs.length - importantLogs.length;
+
+        return (
+        <div className="mb-8">
           <button
-            className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+            className="w-full flex items-center justify-between text-left py-3 border-b border-border"
             onClick={() => setShowNetworkLogs(!showNetworkLogs)}
           >
-            <h3 className="text-lg font-semibold">
-              🌐 네트워크 로그 ({report.networkLogs.length})
-            </h3>
-            <span className="text-gray-400 text-xl">{showNetworkLogs ? '−' : '+'}</span>
+            <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
+              네트워크 로그 ({importantLogs.length}{hiddenCount > 0 ? ` / ${allLogs.length}` : ''})
+            </span>
+            <span className="text-text-muted text-sm">{showNetworkLogs ? '−' : '+'}</span>
           </button>
           {showNetworkLogs && (
-            <div className="border-t border-gray-200 overflow-x-auto">
-              <table className="w-full text-sm">
+            <div>
+              <div className="px-4 py-2 bg-bg border-b border-border flex items-center justify-between">
+                <span className="text-xs text-text-muted">
+                  {showAllNetworkLogs
+                    ? `전체 ${allLogs.length}개`
+                    : `주요 ${importantLogs.length}개 (${hiddenCount}개 숨김)`}
+                </span>
+                {hiddenCount > 0 && (
+                  <button
+                    onClick={() => setShowAllNetworkLogs(!showAllNetworkLogs)}
+                    className="text-xs text-text-secondary hover:text-text-primary underline underline-offset-2"
+                  >
+                    {showAllNetworkLogs ? '주요만' : '전체'}
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+              <table className="w-full text-xs table-fixed">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Method</th>
-                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">URL</th>
-                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Status</th>
-                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Duration</th>
+                  <tr className="bg-bg border-b border-border">
+                    <th className="text-left px-3 py-2 font-medium text-text-muted w-14">Method</th>
+                    <th className="text-left px-3 py-2 font-medium text-text-muted">URL</th>
+                    <th className="text-left px-3 py-2 font-medium text-text-muted w-14">Status</th>
+                    <th className="text-left px-3 py-2 font-medium text-text-muted w-12">Type</th>
+                    <th className="text-left px-3 py-2 font-medium text-text-muted w-16">Time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {report.networkLogs.map((log, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 font-mono text-xs font-bold text-gray-700">
-                        {log.method}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-gray-600 break-all max-w-md">
-                        {log.url}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`text-xs font-mono font-bold ${
-                            log.status === 0
-                              ? 'text-red-600'
-                              : log.status >= 400
-                                ? 'text-red-600'
-                                : log.status >= 300
-                                  ? 'text-yellow-600'
-                                  : 'text-green-600'
-                          }`}
-                        >
-                          {log.status === 0 ? 'Failed' : log.status}
+                <tbody className="divide-y divide-border font-mono">
+                  {displayLogs.map((log, index) => (
+                    <tr key={index} className={`hover:bg-bg ${log._status === 0 || log._status >= 400 ? 'bg-accent-light' : ''}`}>
+                      <td className="px-3 py-2 font-bold text-text-secondary">{log._method}</td>
+                      <td className="px-3 py-2 text-text-muted truncate" title={log._url}>{log._url}</td>
+                      <td className="px-3 py-2">
+                        <span className={`font-bold ${
+                          log._status === 0 || log._status >= 400 ? 'text-accent' : log._status >= 300 ? 'text-warning-600' : 'text-success-600'
+                        }`}>
+                          {log._status === 0 ? 'Fail' : log._status}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-xs text-gray-500">
-                        {log.duration ? `${log.duration}ms` : '-'}
+                      <td className="px-3 py-2 text-text-muted">{log._type}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {log.duration ? `${log.duration}ms` : '—'}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
+              {displayLogs.length === 0 && (
+                <div className="py-6 text-center text-sm text-text-muted">주요 네트워크 요청 없음</div>
+              )}
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-8">
+      <h3 className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="text-sm">
+      <span className="text-text-muted">{label}: </span>
+      <span className="text-text-secondary">{children}</span>
     </div>
   );
 }
