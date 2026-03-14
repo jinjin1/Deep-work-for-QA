@@ -13,18 +13,18 @@ interface BugReport {
   createdAt: string;
 }
 
-const severityColor: Record<string, string> = {
-  critical: 'bg-red-100 text-red-700',
-  major: 'bg-orange-100 text-orange-700',
-  minor: 'bg-yellow-100 text-yellow-700',
-  trivial: 'bg-gray-100 text-gray-600',
+const severityStyle: Record<string, string> = {
+  critical: 'text-accent font-medium',
+  major: 'text-text-primary',
+  minor: 'text-text-secondary',
+  trivial: 'text-text-muted',
 };
 
-const statusColor: Record<string, string> = {
-  open: 'bg-blue-100 text-blue-700',
-  in_progress: 'bg-yellow-100 text-yellow-700',
-  resolved: 'bg-green-100 text-green-700',
-  closed: 'bg-gray-100 text-gray-600',
+const statusStyle: Record<string, string> = {
+  open: 'text-text-primary',
+  in_progress: 'text-warning-600',
+  resolved: 'text-success-600',
+  closed: 'text-text-muted',
 };
 
 export default function BugReportsPage() {
@@ -59,11 +59,11 @@ export default function BugReportsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">버그 리포트</h2>
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-2xl font-bold tracking-tight">버그 리포트</h2>
         <div className="flex gap-2">
           <select
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            className="border border-border rounded px-3 py-1.5 text-sm bg-surface text-text-secondary focus:outline-none focus:border-text-primary transition-colors"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
           >
@@ -74,7 +74,7 @@ export default function BugReportsPage() {
             <option value="closed">Closed</option>
           </select>
           <select
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            className="border border-border rounded px-3 py-1.5 text-sm bg-surface text-text-secondary focus:outline-none focus:border-text-primary transition-colors"
             value={filterSeverity}
             onChange={(e) => setFilterSeverity(e.target.value)}
           >
@@ -88,85 +88,69 @@ export default function BugReportsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="mb-6 px-4 py-3 border-l-2 border-accent bg-accent-light text-sm text-text-primary">
           API 연결 오류: {error}
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="border border-border rounded overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-gray-400">로딩 중...</div>
+          <div className="py-12 text-center text-text-muted text-sm">로딩 중...</div>
         ) : filteredReports.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="text-4xl mb-4">🐛</div>
-            <p className="text-gray-500 mb-2">
+          <div className="py-12 text-center">
+            <p className="text-text-secondary text-sm mb-1">
               {bugReports.length === 0
                 ? '아직 버그 리포트가 없습니다'
                 : '필터 조건에 맞는 버그 리포트가 없습니다'}
             </p>
             {bugReports.length === 0 && (
-              <p className="text-sm text-gray-400">
-                Chrome 확장을 설치하고 첫 번째 버그를 리포트해보세요
-              </p>
+              <p className="text-text-muted text-xs">Chrome 확장을 설치하고 첫 번째 버그를 리포트해보세요</p>
             )}
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Title
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Severity
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Page URL
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created At
-                </th>
+              <tr className="border-b border-border bg-bg">
+                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">Title</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">Severity</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">Status</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">URL</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-28">Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-border">
               {filteredReports.map((bug) => (
                 <tr
                   key={bug.id}
-                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="hover:bg-bg cursor-pointer transition-colors"
                   onClick={() => router.push(`/bug-reports/${bug.id}`)}
                 >
-                  <td className="px-6 py-4">
-                    <span className="font-medium text-gray-900">{bug.title}</span>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {bug.severity === 'critical' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                      )}
+                      <span className="text-text-primary">{bug.title}</span>
+                    </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${severityColor[bug.severity] || 'bg-gray-100 text-gray-600'}`}
-                    >
+                  <td className="px-4 py-3">
+                    <span className={`text-xs ${severityStyle[bug.severity] || 'text-text-muted'}`}>
                       {bug.severity}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColor[bug.status] || 'bg-gray-100 text-gray-600'}`}
-                    >
+                  <td className="px-4 py-3">
+                    <span className={`text-xs ${statusStyle[bug.status] || 'text-text-muted'}`}>
                       {bug.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-gray-500 truncate block max-w-xs">
-                      {bug.pageUrl || '-'}
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-text-muted truncate block max-w-xs">
+                      {bug.pageUrl || '—'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
+                  <td className="px-4 py-3 text-xs text-text-muted tabular-nums">
                     {new Date(bug.createdAt).toLocaleDateString('ko-KR', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
+                      year: 'numeric', month: '2-digit', day: '2-digit',
                     })}
                   </td>
                 </tr>
