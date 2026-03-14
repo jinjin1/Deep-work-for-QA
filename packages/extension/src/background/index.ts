@@ -518,6 +518,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ isRecording });
       break;
 
+    case 'GET_BACKGROUND_LOGS': {
+      // Forward to content script to get always-on logs
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs[0]?.id) {
+          console.warn('[Deep Work] No active tab for GET_BACKGROUND_LOGS');
+          sendResponse({ success: false, data: null });
+          return;
+        }
+
+        // Set a timeout to prevent hanging
+        const timeoutId = setTimeout(() => {
+          console.warn('[Deep Work] GET_BACKGROUND_LOGS timeout');
+          sendResponse({ success: false, data: null });
+        }, 5000);
+
+        chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_BACKGROUND_LOGS' }, (response) => {
+          clearTimeout(timeoutId);
+          if (chrome.runtime.lastError) {
+            console.warn('[Deep Work] GET_BACKGROUND_LOGS failed:', chrome.runtime.lastError.message);
+            sendResponse({ success: false, data: null });
+          } else if (response?.success && response?.data) {
+            console.log('[Deep Work] Background logs forwarded:', {
+              consoleLogs: response.data.console_logs?.length || 0,
+              networkLogs: response.data.network_logs?.length || 0,
+            });
+            sendResponse(response);
+          } else {
+            console.warn('[Deep Work] GET_BACKGROUND_LOGS: empty response');
+            sendResponse({ success: false, data: null });
+          }
+        });
+      });
+      return true; // async
+    }
+
     case 'TAKE_SCREENSHOT':
       chrome.tabs.captureVisibleTab(
         undefined as unknown as number,
