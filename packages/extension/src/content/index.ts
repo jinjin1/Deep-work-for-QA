@@ -27,6 +27,13 @@ interface NetworkLogEntry {
   responseStatus?: number;
 }
 
+// --- Always-on background log buffers (filled continuously) ---
+const MAX_CONSOLE_LOGS = 1000;
+const MAX_NETWORK_LOGS = 500;
+let backgroundConsoleLogs: ConsoleLogEntry[] = [];
+let backgroundNetworkLogs: NetworkLogEntry[] = [];
+
+// --- Recording capture state ---
 let isCapturing = false;
 let capturedEvents: CapturedEvent[] = [];
 let capturedConsoleLogs: ConsoleLogEntry[] = [];
@@ -79,56 +86,72 @@ function handleInput(e: Event) {
   });
 }
 
-// Console log capture
+// Console log capture (both background and recording)
 function startConsoleCapture() {
   console.error = (...args: any[]) => {
-    if (isCapturing) {
-      const message = args.map((a) => {
-        try {
-          return typeof a === 'object' ? JSON.stringify(a) : String(a);
-        } catch {
-          return String(a);
-        }
-      }).join(' ');
-
-      const entry: ConsoleLogEntry = {
-        timestamp: getTimestamp(),
-        level: 'error',
-        message: message.slice(0, 500),
-      };
-
+    const message = args.map((a) => {
       try {
-        const err = new Error();
-        if (err.stack) {
-          entry.stack = err.stack.split('\n').slice(2, 5).join('\n');
-        }
+        return typeof a === 'object' ? JSON.stringify(a) : String(a);
       } catch {
-        // ignore
+        return String(a);
       }
+    }).join(' ');
 
-      capturedConsoleLogs.push(entry);
+    const entry: ConsoleLogEntry = {
+      timestamp: isCapturing ? getTimestamp() : Date.now(),
+      level: 'error',
+      message: message.slice(0, 500),
+    };
+
+    try {
+      const err = new Error();
+      if (err.stack) {
+        entry.stack = err.stack.split('\n').slice(2, 5).join('\n');
+      }
+    } catch {
+      // ignore
     }
+
+    // Always add to background buffer
+    backgroundConsoleLogs.push(entry);
+    if (backgroundConsoleLogs.length > MAX_CONSOLE_LOGS) {
+      backgroundConsoleLogs.splice(0, Math.floor(MAX_CONSOLE_LOGS * 0.2));
+    }
+
+    // Also add to recording if capturing
+    if (isCapturing) {
+      capturedConsoleLogs.push({ ...entry, timestamp: getTimestamp() });
+    }
+
     originalConsoleError.apply(console, args);
   };
 
   console.warn = (...args: any[]) => {
-    if (isCapturing) {
-      const message = args.map((a) => {
-        try {
-          return typeof a === 'object' ? JSON.stringify(a) : String(a);
-        } catch {
-          return String(a);
-        }
-      }).join(' ');
+    const message = args.map((a) => {
+      try {
+        return typeof a === 'object' ? JSON.stringify(a) : String(a);
+      } catch {
+        return String(a);
+      }
+    }).join(' ');
 
-      const entry: ConsoleLogEntry = {
-        timestamp: getTimestamp(),
-        level: 'warn',
-        message: message.slice(0, 500),
-      };
+    const entry: ConsoleLogEntry = {
+      timestamp: isCapturing ? getTimestamp() : Date.now(),
+      level: 'warn',
+      message: message.slice(0, 500),
+    };
 
-      capturedConsoleLogs.push(entry);
+    // Always add to background buffer
+    backgroundConsoleLogs.push(entry);
+    if (backgroundConsoleLogs.length > MAX_CONSOLE_LOGS) {
+      backgroundConsoleLogs.splice(0, Math.floor(MAX_CONSOLE_LOGS * 0.2));
     }
+
+    // Also add to recording if capturing
+    if (isCapturing) {
+      capturedConsoleLogs.push({ ...entry, timestamp: getTimestamp() });
+    }
+
     originalConsoleWarn.apply(console, args);
   };
 }
@@ -140,33 +163,42 @@ function stopConsoleCapture() {
   }
 }
 
-// Network request capture
+// Network request capture (both background and recording)
 function startNetworkCapture() {
   if (performanceObserver) performanceObserver.disconnect();
 
   performanceObserver = new PerformanceObserver((list) => {
-    if (!isCapturing) return;
-
     for (const entry of list.getEntries()) {
       const resourceEntry = entry as PerformanceResourceTiming;
-      capturedNetworkLogs.push({
-        timestamp: getTimestamp(),
+      const logEntry: NetworkLogEntry = {
+        timestamp: isCapturing ? getTimestamp() : Date.now(),
         name: resourceEntry.name,
         initiatorType: resourceEntry.initiatorType,
         duration: Math.round(resourceEntry.duration),
         transferSize: resourceEntry.transferSize || 0,
         responseStatus: (resourceEntry as any).responseStatus || undefined,
-      });
+      };
+
+      // Always add to background buffer
+      backgroundNetworkLogs.push(logEntry);
+      if (backgroundNetworkLogs.length > MAX_NETWORK_LOGS) {
+        backgroundNetworkLogs.splice(0, Math.floor(MAX_NETWORK_LOGS * 0.2));
+      }
+
+      // Also add to recording if capturing
+      if (isCapturing) {
+        capturedNetworkLogs.push({ ...logEntry, timestamp: getTimestamp() });
+      }
     }
   });
 
   try {
-    performanceObserver.observe({ type: 'resource', buffered: false });
+    performanceObserver.observe({ type: 'resource', buffered: true });
   } catch {
     try {
       performanceObserver.observe({ entryTypes: ['resource'] });
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('[Deep Work] PerformanceObserver setup failed:', err);
     }
   }
 }
@@ -264,6 +296,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
       });
       sendResponse({ success: true });
+      return true;
+    }
+
+    // Return always-on background logs (for reports without recording)
+    case 'GET_BACKGROUND_LOGS': {
+      sendResponse({
+        success: true,
+        data: {
+          console_logs: backgroundConsoleLogs.slice(),
+          network_logs: backgroundNetworkLogs.slice(),
+          url: window.location.href,
+          environment: {
+            browser: navigator.userAgent,
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            devicePixelRatio: window.devicePixelRatio,
+            language: navigator.language,
+            platform: navigator.platform,
+          },
+        },
+      });
       return true;
     }
   }
