@@ -47,6 +47,11 @@ baselineRoutes.get('/:id', async (c) => {
 // POST /v1/baselines - Create a baseline
 baselineRoutes.post('/', async (c) => {
   const body = await c.req.json();
+
+  if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'name is required' } }, 400);
+  }
+
   const id = uuid();
   const now = new Date().toISOString();
 
@@ -98,6 +103,12 @@ baselineRoutes.put('/:id', async (c) => {
 // DELETE /v1/baselines/:id - Delete a baseline and its visual diffs
 baselineRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id');
+
+  const [existing] = await db.select().from(baselines).where(eq(baselines.id, id));
+  if (!existing) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Baseline not found' } }, 404);
+  }
+
   await db.delete(visualDiffs).where(eq(visualDiffs.baselineId, id));
   await db.delete(baselines).where(eq(baselines.id, id));
   return c.json({

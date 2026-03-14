@@ -4,6 +4,7 @@ import {
   clusterChangedPixels,
   generateMockVisualAnalysis,
   classifyOverallStatus,
+  runVisualComparison,
   type PixelDiffResult,
   type BoundingBox,
   type VisualAnalysisResult,
@@ -206,6 +207,84 @@ describe('Visual Comparison Engine', () => {
         { classification: 'regression' as const },
       ];
       expect(classifyOverallStatus(changes)).toBe('mixed');
+    });
+
+    it('should return mixed when all changes are uncertain', () => {
+      const changes = [
+        { classification: 'uncertain' as const },
+        { classification: 'uncertain' as const },
+      ];
+      expect(classifyOverallStatus(changes)).toBe('mixed');
+    });
+
+    it('should handle single change correctly', () => {
+      expect(classifyOverallStatus([{ classification: 'regression' as const }])).toBe('regression');
+      expect(classifyOverallStatus([{ classification: 'intentional' as const }])).toBe('intentional');
+      expect(classifyOverallStatus([{ classification: 'uncertain' as const }])).toBe('mixed');
+    });
+  });
+
+  // ─── Full Pipeline: runVisualComparison ─────────────────────
+
+  describe('runVisualComparison', () => {
+    it('should return no_change for identical images', () => {
+      const data = new Uint8Array([
+        255, 0, 0, 255, 255, 0, 0, 255,
+        255, 0, 0, 255, 255, 0, 0, 255,
+      ]);
+      const result = runVisualComparison(data, data, 2, 2, 'https://example.com');
+      expect(result.overall_status).toBe('no_change');
+      expect(result.changes).toEqual([]);
+      expect(result.diffPixelCount).toBe(0);
+      expect(result.diffPercentage).toBe(0);
+      expect(result.summary).toContain('변경');
+    });
+
+    it('should detect changes and produce full analysis for different images', () => {
+      // 10x10 image - baseline all black, current has a 5x5 white block
+      const size = 10 * 10 * 4;
+      const baseline = new Uint8Array(size).fill(0);
+      // Set alpha to 255
+      for (let i = 3; i < size; i += 4) baseline[i] = 255;
+
+      const current = new Uint8Array(baseline);
+      // Make a 5x5 white block at (2,2)
+      for (let y = 2; y < 7; y++) {
+        for (let x = 2; x < 7; x++) {
+          const idx = (y * 10 + x) * 4;
+          current[idx] = 255;
+          current[idx + 1] = 255;
+          current[idx + 2] = 255;
+        }
+      }
+
+      const result = runVisualComparison(baseline, current, 10, 10, 'https://example.com');
+      expect(result.diffPixelCount).toBe(25); // 5x5 block
+      expect(result.diffPercentage).toBe(25); // 25 out of 100 pixels
+      expect(result.changes.length).toBeGreaterThan(0);
+      expect(result.overall_status).not.toBe('no_change');
+    });
+
+    it('should respect ignore regions in full pipeline', () => {
+      const size = 10 * 10 * 4;
+      const baseline = new Uint8Array(size).fill(0);
+      for (let i = 3; i < size; i += 4) baseline[i] = 255;
+
+      const current = new Uint8Array(baseline);
+      // Change all pixels in a 5x5 region at (0,0)
+      for (let y = 0; y < 5; y++) {
+        for (let x = 0; x < 5; x++) {
+          const idx = (y * 10 + x) * 4;
+          current[idx] = 255;
+          current[idx + 1] = 255;
+          current[idx + 2] = 255;
+        }
+      }
+
+      const ignoreRegions: BoundingBox[] = [{ x: 0, y: 0, width: 5, height: 5 }];
+      const result = runVisualComparison(baseline, current, 10, 10, 'https://example.com', ignoreRegions);
+      expect(result.diffPixelCount).toBe(0);
+      expect(result.overall_status).toBe('no_change');
     });
   });
 });

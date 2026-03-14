@@ -3,7 +3,8 @@ import { db } from '../db';
 import { visualDiffs, baselines, bugReports } from '../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { generateMockVisualAnalysis, type BoundingBox } from '../lib/visual-comparison';
+import { PNG } from 'pngjs';
+import { generateMockVisualAnalysis, runVisualComparison, type BoundingBox } from '../lib/visual-comparison';
 
 export const visualDiffRoutes = new Hono();
 
@@ -85,6 +86,14 @@ visualDiffRoutes.get('/:id', async (c) => {
 // POST /v1/visual-diffs - Create a new visual diff comparison
 visualDiffRoutes.post('/', async (c) => {
   const body = await c.req.json();
+
+  if (!body.baseline_id || typeof body.baseline_id !== 'string') {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'baseline_id is required' } }, 400);
+  }
+  if (!body.current_screenshot_url || typeof body.current_screenshot_url !== 'string') {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'current_screenshot_url is required' } }, 400);
+  }
+
   const id = uuid();
   const now = new Date().toISOString();
 
@@ -112,6 +121,19 @@ visualDiffRoutes.post('/', async (c) => {
   }, 201);
 });
 
+// Helper: decode a data:image/png;base64,... URL into raw RGBA + dimensions
+function decodePngDataUrl(dataUrl: string): { data: Uint8Array; width: number; height: number } | null {
+  try {
+    const match = dataUrl.match(/^data:image\/png;base64,(.+)$/);
+    if (!match) return null;
+    const buffer = Buffer.from(match[1], 'base64');
+    const png = PNG.sync.read(buffer);
+    return { data: new Uint8Array(png.data), width: png.width, height: png.height };
+  } catch {
+    return null;
+  }
+}
+
 // POST /v1/visual-diffs/:id/analyze - Trigger AI analysis
 visualDiffRoutes.post('/:id/analyze', async (c) => {
   const id = c.req.param('id');
@@ -124,14 +146,34 @@ visualDiffRoutes.post('/:id/analyze', async (c) => {
   const [baseline] = await db.select().from(baselines).where(eq(baselines.id, diff.baselineId));
   const pageUrl = baseline?.pageUrl || '';
 
-  // Generate mock diff regions (in production, this would use actual pixel comparison)
-  const mockRegions: BoundingBox[] = [
-    { x: 0, y: 0, width: 1440, height: 60 },
-    { x: 200, y: 300, width: 400, height: 200 },
-  ];
+  let analysis;
 
-  // Run mock AI analysis
-  const analysis = generateMockVisualAnalysis(mockRegions, pageUrl);
+  // Try real pixel comparison if both screenshots are data: URLs
+  const baselineImg = baseline?.screenshotUrl ? decodePngDataUrl(baseline.screenshotUrl) : null;
+  const currentImg = diff.currentScreenshotUrl ? decodePngDataUrl(diff.currentScreenshotUrl) : null;
+
+  if (baselineImg && currentImg && baselineImg.width === currentImg.width && baselineImg.height === currentImg.height) {
+    // Real pixel-level comparison
+    const result = runVisualComparison(
+      baselineImg.data, currentImg.data,
+      baselineImg.width, baselineImg.height,
+      pageUrl,
+    );
+    analysis = {
+      changes: result.changes,
+      overall_status: result.overall_status,
+      summary: result.summary,
+      diffPixelCount: result.diffPixelCount,
+      diffPercentage: result.diffPercentage,
+    };
+  } else {
+    // Fallback to mock analysis (seed data or mismatched dimensions)
+    const mockRegions: BoundingBox[] = [
+      { x: 0, y: 0, width: 1440, height: 60 },
+      { x: 200, y: 300, width: 400, height: 200 },
+    ];
+    analysis = { ...generateMockVisualAnalysis(mockRegions, pageUrl), diffPixelCount: undefined, diffPercentage: undefined };
+  }
 
   // Update the visual diff with analysis results
   await db.update(visualDiffs).set({
@@ -148,7 +190,8 @@ visualDiffRoutes.post('/:id/analyze', async (c) => {
       overall_status: analysis.overall_status,
       changes: analysis.changes,
       summary: analysis.summary,
-      diff_image_url: `mock://diffs/${id}.png`,
+      diff_pixel_count: analysis.diffPixelCount,
+      diff_percentage: analysis.diffPercentage,
     },
     meta: { request_id: uuid(), timestamp: new Date().toISOString() },
   });
@@ -190,6 +233,11 @@ visualDiffRoutes.post('/:id/bug-report', async (c) => {
   }
 
   const body = await c.req.json();
+
+  if (!body.title || typeof body.title !== 'string' || body.title.trim().length === 0) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'title is required' } }, 400);
+  }
+
   const [baseline] = await db.select().from(baselines).where(eq(baselines.id, diff.baselineId));
 
   const bugReportId = uuid();
@@ -225,9 +273,61 @@ visualDiffRoutes.post('/:id/bug-report', async (c) => {
   }, 201);
 });
 
+// PUT /v1/visual-diffs/:id/changes/:changeId - Update a single change classification
+visualDiffRoutes.put('/:id/changes/:changeId', async (c) => {
+  const id = c.req.param('id');
+  const changeId = c.req.param('changeId');
+  const [diff] = await db.select().from(visualDiffs).where(eq(visualDiffs.id, id));
+  if (!diff) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Visual diff not found' } }, 404);
+  }
+
+  const body = await c.req.json();
+  const newClassification = body.classification;
+  if (!['intentional', 'regression', 'uncertain'].includes(newClassification)) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: 'classification must be intentional, regression, or uncertain' } }, 400);
+  }
+
+  const changes = JSON.parse(diff.changes) as any[];
+  const changeIndex = changes.findIndex((c: any) => c.id === changeId);
+  if (changeIndex === -1) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Change not found' } }, 404);
+  }
+
+  changes[changeIndex].classification = newClassification;
+
+  // Recalculate overall status (consistent with classifyOverallStatus in visual-comparison.ts)
+  const hasRegression = changes.some((c: any) => c.classification === 'regression');
+  const hasIntentional = changes.some((c: any) => c.classification === 'intentional');
+  const hasUncertain = changes.some((c: any) => c.classification === 'uncertain');
+  let overallStatus: 'no_change' | 'intentional' | 'regression' | 'mixed' = 'no_change';
+  if (changes.length === 0) overallStatus = 'no_change';
+  else if (hasRegression && (hasIntentional || hasUncertain)) overallStatus = 'mixed';
+  else if (hasRegression) overallStatus = 'regression';
+  else if (hasIntentional && hasUncertain) overallStatus = 'mixed';
+  else if (hasIntentional) overallStatus = 'intentional';
+  else overallStatus = 'mixed'; // all uncertain
+
+  await db.update(visualDiffs).set({
+    changes: JSON.stringify(changes),
+    overallStatus,
+  }).where(eq(visualDiffs.id, id));
+
+  return c.json({
+    data: { change_id: changeId, classification: newClassification, overall_status: overallStatus },
+    meta: { request_id: uuid(), timestamp: new Date().toISOString() },
+  });
+});
+
 // DELETE /v1/visual-diffs/:id
 visualDiffRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id');
+
+  const [existing] = await db.select().from(visualDiffs).where(eq(visualDiffs.id, id));
+  if (!existing) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Visual diff not found' } }, 404);
+  }
+
   await db.delete(visualDiffs).where(eq(visualDiffs.id, id));
   return c.json({
     data: { deleted: true },

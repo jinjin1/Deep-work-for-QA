@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 
 type Tab = 'report' | 'session' | 'visual';
 
+interface BaselineItem {
+  id: string;
+  name: string;
+  pageUrl?: string;
+  page_url?: string;
+}
+
 const c = {
   text: '#111111',
   secondary: '#555555',
@@ -10,6 +17,7 @@ const c = {
   bg: '#FAFAFA',
   surface: '#FFFFFF',
   accent: '#E63946',
+  green: '#16A34A',
 };
 
 const formatTime = (seconds: number) => {
@@ -23,6 +31,12 @@ export function Popup() {
   const [isRecording, setIsRecording] = useState(false);
   const [screenshotStatus, setScreenshotStatus] = useState<'idle' | 'capturing' | 'done' | 'error'>('idle');
   const [screenshotError, setScreenshotError] = useState('');
+  const [baselineStatus, setBaselineStatus] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
+  const [baselineError, setBaselineError] = useState('');
+  const [baselines, setBaselines] = useState<BaselineItem[]>([]);
+  const [baselinesLoading, setBaselinesLoading] = useState(false);
+  const [comparisonStatus, setComparisonStatus] = useState<Record<string, 'idle' | 'running' | 'done' | 'error'>>({});
+  const [comparisonResult, setComparisonResult] = useState<Record<string, string>>({});
 
   // Session recording state
   const [sessionTag, setSessionTag] = useState('');
@@ -66,25 +80,8 @@ export function Popup() {
   };
 
   const handleScreenshot = () => {
-    setScreenshotStatus('capturing');
-    setScreenshotError('');
-
-    chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
-      if (chrome.runtime.lastError) {
-        setScreenshotStatus('error');
-        setScreenshotError(chrome.runtime.lastError.message || '스크린샷 실패');
-        return;
-      }
-
-      if (response?.success) {
-        setScreenshotStatus('done');
-        openSidePanel();
-        window.close();
-      } else {
-        setScreenshotStatus('error');
-        setScreenshotError(response?.error || '스크린샷 캡처 실패');
-      }
-    });
+    chrome.runtime.sendMessage({ type: 'START_REGION_CAPTURE' });
+    window.close();
   };
 
   const handleStartSessionRecording = () => {
@@ -105,6 +102,84 @@ export function Popup() {
   const handleStopSessionRecording = () => {
     setIsSessionRecording(false);
     chrome.runtime.sendMessage({ type: 'STOP_SESSION_RECORDING' });
+  };
+
+  // Load baselines when visual tab is active
+  useEffect(() => {
+    if (activeTab !== 'visual') return;
+    setBaselinesLoading(true);
+    chrome.runtime.sendMessage({ type: 'GET_BASELINES' }, (response) => {
+      if (chrome.runtime.lastError) {
+        setBaselinesLoading(false);
+        return;
+      }
+      if (response?.success) {
+        setBaselines(response.data || []);
+      }
+      setBaselinesLoading(false);
+    });
+  }, [activeTab]);
+
+  const handleRunComparison = (baselineId: string) => {
+    setComparisonStatus((prev) => ({ ...prev, [baselineId]: 'running' }));
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const currentTab = tabs[0];
+      if (!currentTab?.id) {
+        setComparisonStatus((prev) => ({ ...prev, [baselineId]: 'error' }));
+        setComparisonResult((prev) => ({ ...prev, [baselineId]: '활성 탭을 찾을 수 없습니다' }));
+        return;
+      }
+      chrome.runtime.sendMessage({
+        type: 'RUN_COMPARISON',
+        data: { baselineId, tabId: currentTab.id },
+      }, (response) => {
+        if (chrome.runtime.lastError || !response?.success) {
+          setComparisonStatus((prev) => ({ ...prev, [baselineId]: 'error' }));
+          setComparisonResult((prev) => ({ ...prev, [baselineId]: response?.error || '비교 실패' }));
+          return;
+        }
+        setComparisonStatus((prev) => ({ ...prev, [baselineId]: 'done' }));
+        const d = response.data;
+        setComparisonResult((prev) => ({
+          ...prev,
+          [baselineId]: `${d.overallStatus === 'no_change' ? '변경 없음' : d.overallStatus === 'regression' ? '회귀 감지' : d.overallStatus} (${d.changesCount}건)`,
+        }));
+      });
+    });
+  };
+
+  const handleSaveBaseline = () => {
+    setBaselineStatus('saving');
+    setBaselineError('');
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const currentTab = tabs[0];
+      if (!currentTab?.id) {
+        setBaselineStatus('error');
+        setBaselineError('활성 탭을 찾을 수 없습니다');
+        return;
+      }
+      chrome.runtime.sendMessage({
+        type: 'SAVE_BASELINE',
+        data: {
+          tabId: currentTab.id,
+          url: currentTab.url || '',
+          title: currentTab.title || '',
+        },
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          setBaselineStatus('error');
+          setBaselineError(chrome.runtime.lastError.message || '저장 실패');
+          return;
+        }
+        if (response?.success) {
+          setBaselineStatus('done');
+          setTimeout(() => setBaselineStatus('idle'), 3000);
+        } else {
+          setBaselineStatus('error');
+          setBaselineError(response?.error || '저장 실패');
+        }
+      });
+    });
   };
 
   const handleAddMark = () => {
@@ -294,15 +369,99 @@ export function Popup() {
       {/* ===== VISUAL TAB ===== */}
       {activeTab === 'visual' && (
         <div>
-          <div style={{ fontSize: 12, color: c.secondary, marginBottom: 12 }}>
-            현재 페이지의 시각적 변경을 감지합니다
-          </div>
-          <button style={{
-            width: '100%', padding: 10, border: 'none', borderRadius: 4,
-            background: c.text, color: c.surface, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          }}>
-            베이스라인 저장
+          {/* Save Baseline */}
+          <button
+            onClick={handleSaveBaseline}
+            disabled={baselineStatus === 'saving'}
+            style={{
+              width: '100%', padding: 10, border: 'none', borderRadius: 4,
+              background: baselineStatus === 'done' ? c.green : baselineStatus === 'error' ? c.accent : c.text,
+              color: c.surface, fontSize: 13, fontWeight: 600,
+              cursor: baselineStatus === 'saving' ? 'wait' : 'pointer',
+              opacity: baselineStatus === 'saving' ? 0.7 : 1,
+              marginBottom: 8,
+            }}
+          >
+            {baselineStatus === 'idle' && '현재 페이지를 베이스라인으로 저장'}
+            {baselineStatus === 'saving' && '저장 중...'}
+            {baselineStatus === 'done' && '저장 완료'}
+            {baselineStatus === 'error' && '저장 실패'}
           </button>
+          {baselineStatus === 'error' && baselineError && (
+            <div style={{ fontSize: 11, color: c.accent, marginBottom: 8 }}>{baselineError}</div>
+          )}
+
+          {/* Baselines List - Run Comparisons */}
+          <div style={{
+            borderTop: `1px solid ${c.border}`, paddingTop: 10, marginTop: 4,
+          }}>
+            <div style={{
+              fontSize: 10, fontWeight: 600, color: c.muted, marginBottom: 8,
+              textTransform: 'uppercase', letterSpacing: '0.08em',
+            }}>
+              비교 실행
+            </div>
+
+            {baselinesLoading ? (
+              <div style={{ fontSize: 12, color: c.muted, textAlign: 'center', padding: 12 }}>
+                로딩 중...
+              </div>
+            ) : baselines.length === 0 ? (
+              <div style={{ fontSize: 12, color: c.muted, textAlign: 'center', padding: 12 }}>
+                저장된 베이스라인이 없습니다
+              </div>
+            ) : (
+              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                {baselines.map((bl) => {
+                  const status = comparisonStatus[bl.id] || 'idle';
+                  const result = comparisonResult[bl.id];
+                  return (
+                    <div key={bl.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '6px 0', borderBottom: `1px solid ${c.border}`,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 12, color: c.text, fontWeight: 500,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {bl.name}
+                        </div>
+                        {result && (
+                          <div style={{
+                            fontSize: 10,
+                            color: status === 'done' && result.includes('변경 없음') ? c.green
+                              : status === 'done' && result.includes('회귀') ? c.accent
+                              : status === 'error' ? c.accent
+                              : c.muted,
+                            marginTop: 2,
+                          }}>
+                            {result}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleRunComparison(bl.id)}
+                        disabled={status === 'running'}
+                        style={{
+                          padding: '4px 10px', border: `1px solid ${c.border}`, borderRadius: 3,
+                          background: status === 'done' ? (result?.includes('회귀') ? '#FEF2F2' : '#F0FDF4') : c.surface,
+                          fontSize: 11, cursor: status === 'running' ? 'wait' : 'pointer',
+                          color: status === 'running' ? c.muted : c.text,
+                          marginLeft: 8, flexShrink: 0,
+                        }}
+                      >
+                        {status === 'idle' && '비교'}
+                        {status === 'running' && '분석 중...'}
+                        {status === 'done' && '완료'}
+                        {status === 'error' && '재시도'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
