@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Deep Work - AI Native QA Platform',
-  description: 'Bug reporting, session replay, and visual regression testing powered by AI',
+  description: 'Bug reporting and visual regression testing powered by AI',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -29,7 +29,6 @@ function Sidebar() {
       <nav className="flex flex-col gap-1 flex-1">
         <NavItem href="/" icon="📊" label="대시보드" />
         <NavItem href="/bug-reports" icon="🐛" label="버그 리포트" />
-        <NavItem href="/sessions" icon="🎬" label="세션 리플레이" />
         <NavItem href="/visual" icon="👁" label="시각적 테스트" />
       </nav>
       <div className="pt-4 border-t border-gray-200">
