@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { fetchBaselines, fetchVisualDiffs, deleteBaseline } from '@/lib/api';
+import { fetchBaselines, fetchVisualDiffs, deleteBaseline, createVisualDiff, triggerVisualAnalysis } from '@/lib/api';
 
 interface Baseline {
   id: string;
@@ -11,6 +11,7 @@ interface Baseline {
   pageUrl?: string;
   viewport: { width: number; height: number };
   screenshot_url: string;
+  screenshotUrl?: string;
   created_at: string;
   createdAt?: string;
 }
@@ -41,6 +42,7 @@ export default function VisualTestPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'baselines' | 'history'>('overview');
+  const [runningComparison, setRunningComparison] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -79,6 +81,44 @@ export default function VisualTestPage() {
     }
   }
 
+  async function handleRunAllComparisons() {
+    if (baselines.length === 0) {
+      alert('비교할 베이스라인이 없습니다. 먼저 Chrome 확장에서 베이스라인을 저장해주세요.');
+      return;
+    }
+    // Only compare baselines that have real screenshots (data: URLs)
+    const baselinesWithScreenshots = baselines.filter((b) => {
+      const url = b.screenshot_url || b.screenshotUrl || '';
+      return url.startsWith('data:');
+    });
+    if (baselinesWithScreenshots.length === 0) {
+      alert('실제 스크린샷이 있는 베이스라인이 없습니다.\nChrome 확장의 Visual 탭에서 개별 비교를 실행해주세요.');
+      return;
+    }
+    setRunningComparison(true);
+    try {
+      for (const baseline of baselinesWithScreenshots) {
+        const screenshotUrl = baseline.screenshot_url || baseline.screenshotUrl || '';
+        const diffRes = await createVisualDiff({
+          baseline_id: baseline.id,
+          current_screenshot_url: screenshotUrl,
+        });
+        if (diffRes.data?.id) {
+          await triggerVisualAnalysis(diffRes.data.id);
+        }
+      }
+      // Reload data
+      const [baselinesRes, diffsRes] = await Promise.all([fetchBaselines(), fetchVisualDiffs()]);
+      setBaselines(Array.isArray(baselinesRes) ? baselinesRes : baselinesRes?.data ?? []);
+      setDiffs(Array.isArray(diffsRes) ? diffsRes : diffsRes?.data ?? []);
+      setActiveTab('overview');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '비교 실행 중 오류가 발생했습니다');
+    } finally {
+      setRunningComparison(false);
+    }
+  }
+
   async function handleDeleteBaseline(id: string, name: string) {
     if (!confirm(`"${name}" 베이스라인을 삭제하시겠습니까? 관련 비교 결과도 모두 삭제됩니다.`)) return;
     try {
@@ -94,8 +134,12 @@ export default function VisualTestPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-2xl font-bold tracking-tight">시각적 테스트</h2>
-        <button className="bg-text-primary text-surface px-4 py-1.5 rounded text-sm font-medium hover:bg-text-secondary transition-colors">
-          전체 비교 실행
+        <button
+          onClick={handleRunAllComparisons}
+          disabled={runningComparison || loading}
+          className="bg-text-primary text-surface px-4 py-1.5 rounded text-sm font-medium hover:bg-text-secondary transition-colors disabled:opacity-50"
+        >
+          {runningComparison ? '비교 실행 중...' : '전체 비교 실행'}
         </button>
       </div>
 

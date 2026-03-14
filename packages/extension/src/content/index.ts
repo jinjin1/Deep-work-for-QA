@@ -21,6 +21,7 @@ interface ConsoleLogEntry {
 interface NetworkLogEntry {
   timestamp: number;
   name: string;
+  method: string;
   initiatorType: string;
   duration: number;
   transferSize: number;
@@ -45,6 +46,7 @@ let performanceObserver: PerformanceObserver | null = null;
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
+const originalConsoleInfo = console.info;
 
 function getTimestamp(): number {
   return Date.now() - startTime;
@@ -86,109 +88,110 @@ function handleInput(e: Event) {
   });
 }
 
-// Console log capture (both background and recording)
-function startConsoleCapture() {
-  console.error = (...args: any[]) => {
-    const message = args.map((a) => {
-      try {
-        return typeof a === 'object' ? JSON.stringify(a) : String(a);
-      } catch {
-        return String(a);
-      }
-    }).join(' ');
+// Helper to push to console log buffer with size limit
+function pushConsoleLog(entry: ConsoleLogEntry) {
+  backgroundConsoleLogs.push(entry);
+  if (backgroundConsoleLogs.length > MAX_CONSOLE_LOGS) {
+    backgroundConsoleLogs.splice(0, Math.floor(MAX_CONSOLE_LOGS * 0.2));
+  }
+  if (isCapturing) {
+    capturedConsoleLogs.push({ ...entry, timestamp: getTimestamp() });
+  }
+}
 
+// Helper to format console args to string
+function formatArgs(args: any[]): string {
+  return args.map((a) => {
+    try {
+      return typeof a === 'object' ? JSON.stringify(a) : String(a);
+    } catch {
+      return String(a);
+    }
+  }).join(' ').slice(0, 500);
+}
+
+// Console log capture (both background and recording)
+let consoleCapturing = false;
+function startConsoleCapture() {
+  if (consoleCapturing) return;
+  consoleCapturing = true;
+
+  console.error = (...args: any[]) => {
     const entry: ConsoleLogEntry = {
       timestamp: isCapturing ? getTimestamp() : Date.now(),
       level: 'error',
-      message: message.slice(0, 500),
+      message: formatArgs(args),
     };
-
     try {
       const err = new Error();
-      if (err.stack) {
-        entry.stack = err.stack.split('\n').slice(2, 5).join('\n');
-      }
-    } catch {
-      // ignore
-    }
-
-    // Always add to background buffer
-    backgroundConsoleLogs.push(entry);
-    if (backgroundConsoleLogs.length > MAX_CONSOLE_LOGS) {
-      backgroundConsoleLogs.splice(0, Math.floor(MAX_CONSOLE_LOGS * 0.2));
-    }
-
-    // Also add to recording if capturing
-    if (isCapturing) {
-      capturedConsoleLogs.push({ ...entry, timestamp: getTimestamp() });
-    }
-
+      if (err.stack) entry.stack = err.stack.split('\n').slice(2, 5).join('\n');
+    } catch { /* ignore */ }
+    pushConsoleLog(entry);
     originalConsoleError.apply(console, args);
   };
 
   console.warn = (...args: any[]) => {
-    const message = args.map((a) => {
-      try {
-        return typeof a === 'object' ? JSON.stringify(a) : String(a);
-      } catch {
-        return String(a);
-      }
-    }).join(' ');
-
     const entry: ConsoleLogEntry = {
       timestamp: isCapturing ? getTimestamp() : Date.now(),
       level: 'warn',
-      message: message.slice(0, 500),
+      message: formatArgs(args),
     };
-
-    // Always add to background buffer
-    backgroundConsoleLogs.push(entry);
-    if (backgroundConsoleLogs.length > MAX_CONSOLE_LOGS) {
-      backgroundConsoleLogs.splice(0, Math.floor(MAX_CONSOLE_LOGS * 0.2));
-    }
-
-    // Also add to recording if capturing
-    if (isCapturing) {
-      capturedConsoleLogs.push({ ...entry, timestamp: getTimestamp() });
-    }
-
+    pushConsoleLog(entry);
     originalConsoleWarn.apply(console, args);
+  };
+
+  console.log = (...args: any[]) => {
+    const entry: ConsoleLogEntry = {
+      timestamp: isCapturing ? getTimestamp() : Date.now(),
+      level: 'log',
+      message: formatArgs(args),
+    };
+    pushConsoleLog(entry);
+    originalConsoleLog.apply(console, args);
+  };
+
+  console.info = (...args: any[]) => {
+    const entry: ConsoleLogEntry = {
+      timestamp: isCapturing ? getTimestamp() : Date.now(),
+      level: 'info',
+      message: formatArgs(args),
+    };
+    pushConsoleLog(entry);
+    originalConsoleInfo.apply(console, args);
   };
 }
 
 function stopConsoleCapture() {
-  if (!isCapturing) {
-    console.error = originalConsoleError;
-    console.warn = originalConsoleWarn;
+  // Don't restore originals — background collection should continue
+}
+
+// Helper to push to network log buffer with size limit
+function pushNetworkLog(entry: NetworkLogEntry) {
+  backgroundNetworkLogs.push(entry);
+  if (backgroundNetworkLogs.length > MAX_NETWORK_LOGS) {
+    backgroundNetworkLogs.splice(0, Math.floor(MAX_NETWORK_LOGS * 0.2));
+  }
+  if (isCapturing) {
+    capturedNetworkLogs.push({ ...entry, timestamp: getTimestamp() });
   }
 }
 
-// Network request capture (both background and recording)
+// Network request capture via PerformanceObserver (sees all resource loads)
 function startNetworkCapture() {
-  if (performanceObserver) performanceObserver.disconnect();
+  if (performanceObserver) return;
 
   performanceObserver = new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
       const resourceEntry = entry as PerformanceResourceTiming;
-      const logEntry: NetworkLogEntry = {
+      pushNetworkLog({
         timestamp: isCapturing ? getTimestamp() : Date.now(),
         name: resourceEntry.name,
+        method: 'GET', // PerformanceResourceTiming doesn't expose method
         initiatorType: resourceEntry.initiatorType,
         duration: Math.round(resourceEntry.duration),
         transferSize: resourceEntry.transferSize || 0,
         responseStatus: (resourceEntry as any).responseStatus || undefined,
-      };
-
-      // Always add to background buffer
-      backgroundNetworkLogs.push(logEntry);
-      if (backgroundNetworkLogs.length > MAX_NETWORK_LOGS) {
-        backgroundNetworkLogs.splice(0, Math.floor(MAX_NETWORK_LOGS * 0.2));
-      }
-
-      // Also add to recording if capturing
-      if (isCapturing) {
-        capturedNetworkLogs.push({ ...logEntry, timestamp: getTimestamp() });
-      }
+      });
     }
   });
 
@@ -198,18 +201,51 @@ function startNetworkCapture() {
     try {
       performanceObserver.observe({ entryTypes: ['resource'] });
     } catch (err) {
-      console.error('[Deep Work] PerformanceObserver setup failed:', err);
+      originalConsoleError.call(console, '[Deep Work] PerformanceObserver setup failed:', err);
     }
   }
 }
 
 function stopNetworkCapture() {
-  if (!isCapturing) {
-    if (performanceObserver) {
-      performanceObserver.disconnect();
-      performanceObserver = null;
+  // Don't disconnect observer — background collection should continue
+}
+
+// Listen for messages from main-world capture script (mainWorldCapture.ts)
+// Registered in manifest.json with "world": "MAIN" to bypass CSP.
+// It intercepts page's console/fetch/XHR and posts messages here via postMessage.
+function setupMainWorldListener() {
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data) return;
+
+    // Console logs from main world
+    if (e.data.__deepwork_console__) {
+      if (backgroundConsoleLogs.length < 3) {
+        originalConsoleLog.call(console, '[Deep Work] Received main-world console log:', e.data.level, e.data.message?.substring(0, 60));
+      }
+      const d = e.data;
+      pushConsoleLog({
+        timestamp: d.timestamp || Date.now(),
+        level: d.level || 'log',
+        message: d.message || '',
+        stack: d.stack,
+      });
+      return;
     }
-  }
+
+    // Network logs from main world
+    if (e.data.__deepwork_network__) {
+      const d = e.data;
+      pushNetworkLog({
+        timestamp: Date.now(),
+        name: d.name || '',
+        method: d.method || 'GET',
+        initiatorType: d.initiatorType || 'fetch',
+        duration: d.duration || 0,
+        transferSize: 0,
+        responseStatus: d.responseStatus,
+      });
+    }
+  });
 }
 
 // --- Bug Report Capture lifecycle ---
@@ -301,6 +337,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     // Return always-on background logs (for reports without recording)
     case 'GET_BACKGROUND_LOGS': {
+      originalConsoleLog.call(console, '[Deep Work] GET_BACKGROUND_LOGS requested. console:', backgroundConsoleLogs.length, 'network:', backgroundNetworkLogs.length);
       sendResponse({
         success: true,
         data: {
@@ -321,4 +358,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-console.log('[Deep Work] Content script loaded');
+// Start always-on background log collection immediately
+startConsoleCapture();      // Captures logs from content script isolated world
+startNetworkCapture();      // PerformanceObserver for resource timing
+setupMainWorldListener();   // Receives console + network logs from mainWorldCapture.ts
+
+originalConsoleLog.call(console, '[Deep Work] Content script loaded, buffers:', backgroundConsoleLogs.length, 'console,', backgroundNetworkLogs.length, 'network');

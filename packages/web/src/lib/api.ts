@@ -22,6 +22,14 @@ export async function fetchBugReport(id: string) {
   return request<{ data: any; meta: any }>(`${API_BASE}/bug-reports/${id}`);
 }
 
+export async function updateBugReport(id: string, data: { title?: string; description?: string; severity?: string; status?: string }) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/bug-reports/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function fetchSessions(params?: {
   project_id?: string;
   has_anomalies?: string;
@@ -119,6 +127,14 @@ export async function deleteBaseline(id: string) {
   return request<{ data: any; meta: any }>(`${API_BASE}/baselines/${id}`, { method: 'DELETE' });
 }
 
+export async function createVisualDiff(data: { baseline_id: string; current_screenshot_url: string; project_id?: string }) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function fetchVisualDiffs(params?: {
   baseline_id?: string;
   status?: string;
@@ -147,6 +163,18 @@ export async function approveVisualDiff(id: string) {
   return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs/${id}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function updateChangeClassification(
+  diffId: string,
+  changeId: string,
+  classification: 'intentional' | 'regression' | 'uncertain',
+) {
+  return request<{ data: any; meta: any }>(`${API_BASE}/visual-diffs/${diffId}/changes/${changeId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ classification }),
   });
 }
 

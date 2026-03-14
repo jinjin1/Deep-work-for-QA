@@ -274,9 +274,70 @@ describe('UC-3 E2E: Visual Regression Testing Full Flow', () => {
     });
   });
 
+  // ─── Change Classification ─────────────────────────────────
+
+  describe('7. Change classification (individual)', () => {
+    let classifyBaselineId: string;
+    let classifyDiffId: string;
+    let classifyChangeIds: string[];
+
+    it('Step 1: Create baseline, diff, and run analysis', async () => {
+      const bRes = await api('POST', '/baselines', {
+        name: 'E2E 분류 테스트 페이지',
+        page_url: 'https://e2e.example.com/classify',
+        screenshot_url: 'baseline-screenshot',
+      });
+      classifyBaselineId = bRes.json.data.id;
+
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: classifyBaselineId,
+        current_screenshot_url: 'current-screenshot',
+      });
+      classifyDiffId = dRes.json.data.id;
+
+      // Run analysis to populate changes
+      const analyzeRes = await api('POST', `/visual-diffs/${classifyDiffId}/analyze`);
+      expect(analyzeRes.status).toBe(200);
+      expect(analyzeRes.json.data.changes.length).toBeGreaterThan(0);
+      classifyChangeIds = analyzeRes.json.data.changes.map((c: any) => c.id);
+    });
+
+    it('Step 2: Classify a change as intentional', async () => {
+      const { status, json } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${classifyChangeIds[0]}`, {
+        classification: 'intentional',
+      });
+      expect(status).toBe(200);
+      expect(json.data.classification).toBe('intentional');
+    });
+
+    it('Step 3: Verify classification is persisted', async () => {
+      const { json } = await api('GET', `/visual-diffs/${classifyDiffId}`);
+      const change = json.data.changes.find((c: any) => c.id === classifyChangeIds[0]);
+      expect(change.classification).toBe('intentional');
+    });
+
+    it('Step 4: Overall status recalculates correctly', async () => {
+      // Set all to intentional
+      for (const cid of classifyChangeIds) {
+        await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${cid}`, {
+          classification: 'intentional',
+        });
+      }
+      const { json } = await api('GET', `/visual-diffs/${classifyDiffId}`);
+      expect(json.data.overall_status).toBe('intentional');
+    });
+
+    it('Step 5: Reject invalid classification', async () => {
+      const { status } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${classifyChangeIds[0]}`, {
+        classification: 'bad_value',
+      });
+      expect(status).toBe(400);
+    });
+  });
+
   // ─── Cleanup ──────────────────────────────────────────────
 
-  describe('7. Cleanup (delete)', () => {
+  describe('8. Cleanup (delete)', () => {
     it('should delete a baseline and cascade to visual diffs', async () => {
       // Create temp baseline + diff
       const bRes = await api('POST', '/baselines', {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { fetchVisualDiff, approveVisualDiff, createBugReportFromVisualDiff } from '@/lib/api';
+import { fetchVisualDiff, approveVisualDiff, createBugReportFromVisualDiff, updateChangeClassification } from '@/lib/api';
 
 interface VisualChange {
   id: string;
@@ -93,6 +93,19 @@ export default function VisualDiffDetailPage() {
       setDiff(res.data);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to approve');
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleClassifyChange(change: VisualChange, classification: 'intentional' | 'uncertain') {
+    setActionLoading(change.id);
+    try {
+      await updateChangeClassification(id, change.id, classification);
+      const res = await fetchVisualDiff(id);
+      setDiff(res.data);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update classification');
     } finally {
       setActionLoading(null);
     }
@@ -223,48 +236,51 @@ export default function VisualDiffDetailPage() {
               <h3 className="text-sm font-medium text-gray-500 mb-2">
                 베이스라인 {diff.baseline ? `(${new Date(diff.created_at).toLocaleDateString('ko-KR')})` : ''}
               </h3>
-              <div className="bg-gray-100 rounded-lg p-4 min-h-[200px] flex items-center justify-center border-2 border-dashed border-gray-300">
-                <div className="text-center text-gray-400">
-                  <div className="text-3xl mb-2">📷</div>
-                  <p className="text-sm">{diff.baseline?.screenshot_url || 'No screenshot'}</p>
-                  <p className="text-xs mt-1">베이스라인 스크린샷</p>
-                </div>
-              </div>
+              <ScreenshotBox url={diff.baseline?.screenshot_url} label="베이스라인 스크린샷" />
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500 mb-2">현재 상태</h3>
-              <div className="bg-gray-100 rounded-lg p-4 min-h-[200px] flex items-center justify-center border-2 border-dashed border-gray-300">
-                <div className="text-center text-gray-400">
-                  <div className="text-3xl mb-2">📷</div>
-                  <p className="text-sm">{diff.current_screenshot_url || 'No screenshot'}</p>
-                  <p className="text-xs mt-1">현재 스크린샷</p>
-                </div>
-              </div>
+              <ScreenshotBox url={diff.current_screenshot_url} label="현재 스크린샷" />
             </div>
           </div>
         )}
         {viewMode === 'overlay' && (
           <div>
             <h3 className="text-sm font-medium text-gray-500 mb-2">오버레이 비교</h3>
-            <div className="bg-gray-100 rounded-lg p-4 min-h-[200px] flex items-center justify-center border-2 border-dashed border-gray-300 relative">
-              <div className="text-center text-gray-400">
-                <div className="text-3xl mb-2">🔍</div>
-                <p className="text-sm">오버레이 뷰</p>
-                <p className="text-xs mt-1">베이스라인과 현재 스크린샷이 겹쳐 표시됩니다</p>
+            {diff.baseline?.screenshot_url && diff.current_screenshot_url ? (
+              <div className="relative bg-gray-100 rounded-lg overflow-hidden min-h-[200px]">
+                <img src={diff.baseline.screenshot_url} alt="베이스라인" className="w-full" />
+                <img
+                  src={diff.current_screenshot_url}
+                  alt="현재"
+                  className="absolute inset-0 w-full opacity-50"
+                  style={{ mixBlendMode: 'difference' }}
+                />
               </div>
-            </div>
+            ) : (
+              <ScreenshotBox url={undefined} label="오버레이 뷰 (스크린샷 필요)" />
+            )}
           </div>
         )}
         {viewMode === 'diff-only' && (
           <div>
             <h3 className="text-sm font-medium text-gray-500 mb-2">Diff 이미지</h3>
-            <div className="bg-gray-100 rounded-lg p-4 min-h-[200px] flex items-center justify-center border-2 border-dashed border-gray-300">
-              <div className="text-center text-gray-400">
-                <div className="text-3xl mb-2">🎨</div>
-                <p className="text-sm">{diff.diff_image_url || 'No diff image'}</p>
-                <p className="text-xs mt-1">변경 영역이 하이라이트된 diff 이미지</p>
+            {diff.baseline?.screenshot_url && diff.current_screenshot_url ? (
+              <div className="relative bg-black rounded-lg overflow-hidden min-h-[200px]">
+                <img src={diff.baseline.screenshot_url} alt="베이스라인" className="w-full opacity-50" />
+                <img
+                  src={diff.current_screenshot_url}
+                  alt="현재"
+                  className="absolute inset-0 w-full opacity-50"
+                  style={{ mixBlendMode: 'difference' }}
+                />
+                <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                  차이점이 밝게 표시됩니다
+                </div>
               </div>
-            </div>
+            ) : (
+              <ScreenshotBox url={diff.diff_image_url} label="Diff 이미지" />
+            )}
           </div>
         )}
       </div>
@@ -340,16 +356,24 @@ export default function VisualDiffDetailPage() {
                         </button>
                       )}
                       <button
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClassifyChange(change, 'intentional');
+                        }}
+                        disabled={actionLoading === change.id}
+                        className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50 transition-colors"
                       >
-                        의도적 변경으로 표시
+                        {actionLoading === change.id ? '처리 중...' : '의도적 변경으로 표시'}
                       </button>
                       <button
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClassifyChange(change, 'uncertain');
+                        }}
+                        disabled={actionLoading === change.id}
+                        className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-200 disabled:opacity-50 transition-colors"
                       >
-                        보류
+                        {actionLoading === change.id ? '처리 중...' : '보류'}
                       </button>
                     </div>
                   )}
@@ -358,6 +382,25 @@ export default function VisualDiffDetailPage() {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ScreenshotBox({ url, label }: { url?: string | null; label: string }) {
+  if (url && (url.startsWith('data:') || url.startsWith('http') || url.startsWith('/'))) {
+    return (
+      <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+        <img src={url} alt={label} className="w-full" />
+      </div>
+    );
+  }
+  return (
+    <div className="bg-gray-100 rounded-lg p-4 min-h-[200px] flex items-center justify-center border-2 border-dashed border-gray-300">
+      <div className="text-center text-gray-400">
+        <div className="text-3xl mb-2">📷</div>
+        <p className="text-sm">{label}</p>
+        <p className="text-xs mt-1">스크린샷 없음</p>
       </div>
     </div>
   );
