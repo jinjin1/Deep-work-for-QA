@@ -68,6 +68,7 @@ export async function createBugReport(data: {
   console_logs: unknown[];
   network_logs: unknown[];
   events: unknown[];
+  screenshot_urls?: string[];
 }): Promise<BugReportResult> {
   const result = await request<ApiResponse<BugReportResult>>(`${API_BASE}/bug-reports`, {
     method: 'POST',

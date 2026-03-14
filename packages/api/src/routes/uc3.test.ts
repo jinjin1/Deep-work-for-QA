@@ -230,5 +230,236 @@ describe('UC-3 API Integration Tests', () => {
       expect(status).toBe(200);
       expect(json.data.deleted).toBe(true);
     });
+
+    it('should return 404 for deleting non-existent visual diff', async () => {
+      const { status } = await api('DELETE', '/visual-diffs/non-existent');
+      expect(status).toBe(404);
+    });
+  });
+
+  // ─── Input Validation ─────────────────────────────────────────
+
+  describe('Input Validation', () => {
+    it('should reject baseline creation without name', async () => {
+      const { status, json } = await api('POST', '/baselines', {
+        page_url: 'https://example.com',
+      });
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should reject baseline creation with empty name', async () => {
+      const { status, json } = await api('POST', '/baselines', {
+        name: '',
+        page_url: 'https://example.com',
+      });
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should reject visual diff creation without baseline_id', async () => {
+      const { status, json } = await api('POST', '/visual-diffs', {
+        current_screenshot_url: 'test',
+      });
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should reject visual diff creation without current_screenshot_url', async () => {
+      const { status, json } = await api('POST', '/visual-diffs', {
+        baseline_id: 'some-id',
+      });
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should reject bug report creation without title', async () => {
+      // Create baseline + diff first
+      const bRes = await api('POST', '/baselines', {
+        name: 'Validation Test',
+        page_url: 'https://example.com',
+      });
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: bRes.json.data.id,
+        current_screenshot_url: 'test-screenshot',
+      });
+      const { status, json } = await api('POST', `/visual-diffs/${dRes.json.data.id}/bug-report`, {});
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 404 when deleting non-existent baseline', async () => {
+      const { status } = await api('DELETE', '/baselines/non-existent');
+      expect(status).toBe(404);
+    });
+  });
+
+  // ─── Concurrency & Idempotency ─────────────────────────────────
+
+  describe('Concurrency and edge cases', () => {
+    it('should handle re-analyzing an already analyzed diff', async () => {
+      const bRes = await api('POST', '/baselines', {
+        name: 'Re-analyze Test',
+        page_url: 'https://example.com/reanalyze',
+      });
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: bRes.json.data.id,
+        current_screenshot_url: 'screenshot-data',
+      });
+      const diffId = dRes.json.data.id;
+
+      // First analysis
+      const first = await api('POST', `/visual-diffs/${diffId}/analyze`);
+      expect(first.status).toBe(200);
+      expect(first.json.data.ai_analysis_status).toBe('completed');
+
+      // Second analysis (re-analyze)
+      const second = await api('POST', `/visual-diffs/${diffId}/analyze`);
+      expect(second.status).toBe(200);
+      expect(second.json.data.ai_analysis_status).toBe('completed');
+    });
+
+    it('should handle approving an already approved diff', async () => {
+      const bRes = await api('POST', '/baselines', {
+        name: 'Re-approve Test',
+        page_url: 'https://example.com/reapprove',
+      });
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: bRes.json.data.id,
+        current_screenshot_url: 'new-screenshot',
+      });
+      const diffId = dRes.json.data.id;
+
+      // First approve
+      const first = await api('POST', `/visual-diffs/${diffId}/approve`);
+      expect(first.status).toBe(200);
+
+      // Second approve (idempotent)
+      const second = await api('POST', `/visual-diffs/${diffId}/approve`);
+      expect(second.status).toBe(200);
+    });
+
+    it('should filter visual diffs by project_id', async () => {
+      const { status, json } = await api('GET', '/visual-diffs?project_id=proj-default');
+      expect(status).toBe(200);
+      expect(Array.isArray(json.data)).toBe(true);
+      for (const diff of json.data) {
+        expect(diff.projectId).toBe('proj-default');
+      }
+    });
+
+    it('should handle baseline update with viewport change', async () => {
+      const bRes = await api('POST', '/baselines', {
+        name: 'Viewport Update Test',
+        page_url: 'https://example.com/viewport',
+        viewport: { width: 1440, height: 900 },
+      });
+      const baselineId = bRes.json.data.id;
+
+      const { status, json } = await api('PUT', `/baselines/${baselineId}`, {
+        viewport: { width: 375, height: 812 },
+      });
+      expect(status).toBe(200);
+
+      const getRes = await api('GET', `/baselines/${baselineId}`);
+      expect(getRes.json.data.viewport).toEqual({ width: 375, height: 812 });
+    });
+  });
+
+  // ─── Change Classification (PUT /visual-diffs/:id/changes/:changeId) ──
+
+  describe('PUT /v1/visual-diffs/:id/changes/:changeId', () => {
+    let classifyDiffId: string;
+    let changeIds: string[];
+
+    beforeAll(async () => {
+      // Create baseline + diff + run analysis to get changes
+      const bRes = await api('POST', '/baselines', {
+        name: 'Classification Test Page',
+        page_url: 'https://example.com/classify',
+      });
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: bRes.json.data.id,
+        current_screenshot_url: 'classify-screenshot',
+      });
+      classifyDiffId = dRes.json.data.id;
+
+      // Run analysis to generate changes
+      await api('POST', `/visual-diffs/${classifyDiffId}/analyze`);
+
+      // Get the changes
+      const getRes = await api('GET', `/visual-diffs/${classifyDiffId}`);
+      changeIds = getRes.json.data.changes.map((c: any) => c.id);
+    });
+
+    it('should update a change classification to intentional', async () => {
+      const { status, json } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${changeIds[0]}`, {
+        classification: 'intentional',
+      });
+      expect(status).toBe(200);
+      expect(json.data.change_id).toBe(changeIds[0]);
+      expect(json.data.classification).toBe('intentional');
+      expect(json.data.overall_status).toBeDefined();
+    });
+
+    it('should persist the classification change', async () => {
+      const { json } = await api('GET', `/visual-diffs/${classifyDiffId}`);
+      const updatedChange = json.data.changes.find((c: any) => c.id === changeIds[0]);
+      expect(updatedChange.classification).toBe('intentional');
+    });
+
+    it('should update a change to uncertain', async () => {
+      const { status, json } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${changeIds[1]}`, {
+        classification: 'uncertain',
+      });
+      expect(status).toBe(200);
+      expect(json.data.classification).toBe('uncertain');
+    });
+
+    it('should recalculate overall status after classification changes', async () => {
+      // Set all changes to intentional
+      for (const cid of changeIds) {
+        await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${cid}`, {
+          classification: 'intentional',
+        });
+      }
+      const { json } = await api('GET', `/visual-diffs/${classifyDiffId}`);
+      expect(json.data.overall_status).toBe('intentional');
+
+      // Change one back to regression → should become mixed
+      await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${changeIds[0]}`, {
+        classification: 'regression',
+      });
+      const { json: json2 } = await api('GET', `/visual-diffs/${classifyDiffId}`);
+      expect(json2.data.overall_status).toBe('mixed');
+    });
+
+    it('should return 404 for non-existent diff', async () => {
+      const { status } = await api('PUT', '/visual-diffs/non-existent/changes/some-change', {
+        classification: 'intentional',
+      });
+      expect(status).toBe(404);
+    });
+
+    it('should return 404 for non-existent change id', async () => {
+      const { status } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/non-existent-change`, {
+        classification: 'intentional',
+      });
+      expect(status).toBe(404);
+    });
+
+    it('should reject invalid classification value', async () => {
+      const { status, json } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${changeIds[0]}`, {
+        classification: 'invalid_value',
+      });
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should reject missing classification field', async () => {
+      const { status, json } = await api('PUT', `/visual-diffs/${classifyDiffId}/changes/${changeIds[0]}`, {});
+      expect(status).toBe(400);
+      expect(json.error.code).toBe('VALIDATION_ERROR');
+    });
   });
 });
