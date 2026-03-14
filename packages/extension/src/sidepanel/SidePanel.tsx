@@ -148,13 +148,33 @@ export function SidePanel() {
   } | null> => {
     return new Promise((resolve) => {
       try {
-        const timeout = setTimeout(() => resolve(null), 5000);
+        const timeout = setTimeout(() => {
+          console.warn('[SidePanel] GET_BACKGROUND_LOGS timeout');
+          resolve(null);
+        }, 5000);
+
         chrome.runtime.sendMessage({ type: 'GET_BACKGROUND_LOGS' }, (response) => {
           clearTimeout(timeout);
-          if (chrome.runtime.lastError || !response?.success || !response?.data) { resolve(null); return; }
-          resolve(response.data);
+          if (chrome.runtime.lastError) {
+            console.warn('[SidePanel] GET_BACKGROUND_LOGS error:', chrome.runtime.lastError.message);
+            resolve(null);
+            return;
+          }
+          if (response?.success && response?.data) {
+            console.log('[SidePanel] Background logs fetched:', {
+              consoleLogs: response.data.console_logs?.length || 0,
+              networkLogs: response.data.network_logs?.length || 0,
+            });
+            resolve(response.data);
+          } else {
+            console.warn('[SidePanel] GET_BACKGROUND_LOGS: no data in response');
+            resolve(null);
+          }
         });
-      } catch { resolve(null); }
+      } catch (err) {
+        console.error('[SidePanel] fetchBackgroundLogs error:', err);
+        resolve(null);
+      }
     });
   };
 
