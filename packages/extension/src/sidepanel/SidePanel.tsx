@@ -3,6 +3,7 @@ import { createBugReport, generateReproSteps } from '../lib/api';
 
 type Severity = 'critical' | 'major' | 'minor' | 'trivial';
 type SidePanelView = 'recording' | 'form' | 'success';
+type CaptureMode = 'recording' | 'screenshot' | 'manual';
 
 interface CaptureData {
   events: unknown[];
@@ -35,6 +36,7 @@ export function SidePanel() {
   const [view, setView] = useState<SidePanelView>('form');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('manual');
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -75,9 +77,21 @@ export function SidePanel() {
 
   useEffect(() => {
     const listener = (message: { type: string }) => {
-      if (message.type === 'RECORDING_STARTED') { setIsRecording(true); setRecordingElapsed(0); setView('recording'); }
-      else if (message.type === 'RECORDING_STOPPED') { setIsRecording(false); loadCaptureData(); setView('form'); }
-      else if (message.type === 'SCREENSHOT_TAKEN') { loadScreenshotData(true); setView('form'); }
+      if (message.type === 'RECORDING_STARTED') {
+        setIsRecording(true);
+        setRecordingElapsed(0);
+        setView('recording');
+        setCaptureMode('recording');
+      } else if (message.type === 'RECORDING_STOPPED') {
+        setIsRecording(false);
+        setCaptureMode('recording');
+        loadCaptureData();
+        setView('form');
+      } else if (message.type === 'SCREENSHOT_TAKEN') {
+        setCaptureMode('screenshot');
+        loadScreenshotData();
+        setView('form');
+      }
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
@@ -88,20 +102,24 @@ export function SidePanel() {
     chrome.runtime.sendMessage({ type: 'GET_CAPTURE_DATA' }, (response) => {
       if (chrome.runtime.lastError) { setLoadingCapture(false); return; }
       setLoadingCapture(false);
-      if (response?.success && response.data) setCaptureData(response.data);
-    });
-  }, []);
-
-  const loadScreenshotData = useCallback((ignoreExpiry = false) => {
-    chrome.storage.local.get('screenshotData', (result) => {
-      if (chrome.runtime.lastError) return;
-      if (result.screenshotData?.dataUrl) {
-        const age = Date.now() - (result.screenshotData.timestamp || 0);
-        if (ignoreExpiry || age < 5 * 60 * 1000) setScreenshotDataUrl(result.screenshotData.dataUrl);
-        else chrome.storage.local.remove('screenshotData');
+      if (response?.success && response.data) {
+        setCaptureData(response.data);
+        setCaptureMode('recording');
       }
     });
   }, []);
+
+  const loadScreenshotData = useCallback(() => {
+    chrome.storage.local.get('screenshotData', (result) => {
+      if (chrome.runtime.lastError) return;
+      if (result.screenshotData?.dataUrl) {
+        setScreenshotDataUrl(result.screenshotData.dataUrl);
+        if (!captureData) {
+          setCaptureMode('screenshot');
+        }
+      }
+    });
+  }, [captureData]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -110,8 +128,12 @@ export function SidePanel() {
   };
 
   const handleStartRecording = () => {
-    setIsRecording(true); setRecordingElapsed(0); setView('recording');
-    setCaptureData(null); setScreenshotDataUrl(null);
+    setIsRecording(true);
+    setRecordingElapsed(0);
+    setView('recording');
+    setCaptureData(null);
+    setScreenshotDataUrl(null);
+    setCaptureMode('recording');
     chrome.runtime.sendMessage({ type: 'START_RECORDING' });
   };
 
@@ -133,6 +155,16 @@ export function SidePanel() {
           resolve(response.data);
         });
       } catch { resolve(null); }
+    });
+  };
+
+  const handleTakeScreenshot = () => {
+    chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
+      if (chrome.runtime.lastError) return;
+      if (response?.success) {
+        setCaptureMode('screenshot');
+        loadScreenshotData();
+      }
     });
   };
 
@@ -188,14 +220,55 @@ export function SidePanel() {
   };
 
   const handleReset = () => {
-    setTitle(''); setDescription(''); setSeverity('major'); setSubmitState('idle');
-    setSubmitError(''); setSubmittedReport(null); setReproSteps(null); setReproError('');
-    setCaptureData(null); setScreenshotDataUrl(null); setView('form');
+    setTitle('');
+    setDescription('');
+    setSeverity('major');
+    setSubmitState('idle');
+    setSubmitError('');
+    setSubmittedReport(null);
+    setReproSteps(null);
+    setReproError('');
+    setCaptureData(null);
+    setScreenshotDataUrl(null);
+    setCaptureMode('manual');
+    setView('form');
   };
 
   const baseStyle: React.CSSProperties = {
     padding: 16, maxWidth: 400, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif',
     background: c.surface, color: c.text,
+  };
+
+  const hasAnyCaptureData = captureData || screenshotDataUrl;
+
+  // Capture mode badge
+  const renderCaptureModeBadge = () => {
+    if (captureMode === 'recording' && captureData) {
+      return (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 10, color: c.accent, background: '#FEF0F1',
+          padding: '3px 8px', borderRadius: 4, fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.04em',
+        }}>
+          <span style={{ width: 5, height: 5, borderRadius: '50%', background: c.accent, display: 'inline-block' }} />
+          녹화 완료
+        </div>
+      );
+    }
+    if (captureMode === 'screenshot' && screenshotDataUrl) {
+      return (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 10, color: c.secondary, background: c.bg,
+          padding: '3px 8px', borderRadius: 4, fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.04em',
+        }}>
+          스크린샷 첨부됨
+        </div>
+      );
+    }
+    return null;
   };
 
   // ===================== RECORDING VIEW =====================
@@ -212,6 +285,20 @@ export function SidePanel() {
             {formatTime(recordingElapsed)}
           </div>
           <div style={{ fontSize: 12, color: c.secondary, marginTop: 6 }}>버그를 재현한 후 녹화를 중지하세요</div>
+          <div style={{
+            fontSize: 10, color: c.muted, marginTop: 8,
+            display: 'flex', justifyContent: 'center', gap: 8,
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+          }}>
+            {['클릭/입력', '콘솔', '네트워크'].map((tag) => (
+              <span key={tag} style={{
+                background: c.bg, padding: '2px 8px',
+                borderRadius: 4, border: `1px solid ${c.border}`,
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
         </div>
         <button onClick={handleStopRecording} style={{
           width: '100%', padding: 12, border: 'none', borderRadius: 4,
@@ -285,8 +372,46 @@ export function SidePanel() {
   // ===================== FORM VIEW =====================
   return (
     <div style={baseStyle}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, letterSpacing: '-0.02em' }}>새 버그 리포트</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.02em' }}>새 버그 리포트</div>
+        {renderCaptureModeBadge()}
+      </div>
 
+      {/* Capture action bar - show when no capture data exists */}
+      {!hasAnyCaptureData && (
+        <div style={{
+          padding: 12, background: c.bg, borderRadius: 4, marginBottom: 14,
+          border: `1px solid ${c.border}`,
+        }}>
+          <div style={{ fontSize: 11, color: c.secondary, marginBottom: 8 }}>
+            캡처 데이터 없이 리포트를 작성합니다. 증거를 첨부하시겠습니까?
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={handleStartRecording}
+              style={{
+                flex: 1, padding: '8px 0', border: 'none', borderRadius: 4,
+                background: c.accent, color: '#fff', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              조작 녹화
+            </button>
+            <button
+              onClick={handleTakeScreenshot}
+              style={{
+                flex: 1, padding: '8px 0', border: `1px solid ${c.border}`, borderRadius: 4,
+                background: c.surface, color: c.text, fontSize: 12, fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              스크린샷
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Title */}
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontSize: 10, fontWeight: 600, display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', color: c.muted }}>제목 *</label>
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
@@ -333,7 +458,12 @@ export function SidePanel() {
         <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: c.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>스크린샷</div>
-            <button onClick={() => { setScreenshotDataUrl(null); chrome.storage.local.remove('screenshotData'); }}
+            <button
+              onClick={() => {
+                setScreenshotDataUrl(null);
+                chrome.storage.local.remove('screenshotData');
+                if (!captureData) setCaptureMode('manual');
+              }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: c.muted, textDecoration: 'underline' }}>
               삭제
             </button>
@@ -345,6 +475,7 @@ export function SidePanel() {
         </div>
       )}
 
+      {/* Auto-collected data */}
       <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: c.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>자동 수집 데이터</div>
         {loadingCapture ? (
@@ -371,7 +502,7 @@ export function SidePanel() {
             </span>
           </div>
         ) : (
-          <div style={{ fontSize: 11, color: c.accent }}>수집된 데이터 없음. 녹화를 시작하세요.</div>
+          <div style={{ fontSize: 11, color: c.muted }}>수집된 데이터 없음. 녹화를 시작하세요.</div>
         )}
       </div>
 
