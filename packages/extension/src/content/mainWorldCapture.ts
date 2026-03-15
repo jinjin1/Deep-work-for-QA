@@ -2,11 +2,37 @@
 // Runs in the PAGE's JavaScript context (not the isolated content script world).
 // This allows us to intercept the page's console.log, fetch, XHR, etc.
 // Registered in manifest.json with "world": "MAIN".
+// Uses a hidden DOM element + attribute for cross-world communication (DOM is shared).
 
 (function () {
   // Guard against double-injection
   if ((window as any).__deepwork_main_world_active__) return;
   (window as any).__deepwork_main_world_active__ = true;
+
+  // ---- Bridge element for cross-world communication ----
+  // Both MAIN and ISOLATED worlds share the DOM, so we use a hidden element
+  // with data-* attributes to pass data reliably.
+  let bridge: HTMLElement | null = null;
+
+  function getBridge(): HTMLElement {
+    if (bridge) return bridge;
+    bridge = document.getElementById('__deepwork_bridge__');
+    if (!bridge) {
+      bridge = document.createElement('div');
+      bridge.id = '__deepwork_bridge__';
+      bridge.style.display = 'none';
+      (document.documentElement || document.body || document).appendChild(bridge);
+    }
+    return bridge;
+  }
+
+  function sendToContentScript(type: string, data: Record<string, unknown>) {
+    try {
+      const el = getBridge();
+      el.setAttribute('data-payload', JSON.stringify({ type, ...data }));
+      el.dispatchEvent(new Event('__deepwork_msg__', { bubbles: false }));
+    } catch { /* ignore */ }
+  }
 
   // ---- Console interception ----
   const origLog = console.log;
@@ -27,8 +53,7 @@
   }
 
   function postLog(level: string, args: IArguments | any[]) {
-    const msg: any = {
-      __deepwork_console__: true,
+    const data: Record<string, unknown> = {
       level,
       message: fmtArgs(args),
       timestamp: Date.now(),
@@ -36,10 +61,10 @@
     if (level === 'error') {
       try {
         const e = new Error();
-        if (e.stack) msg.stack = e.stack.split('\n').slice(3, 6).join('\n');
+        if (e.stack) data.stack = e.stack.split('\n').slice(3, 6).join('\n');
       } catch { /* ignore */ }
     }
-    window.postMessage(msg, '*');
+    sendToContentScript('console', data);
   }
 
   console.log = function () { postLog('log', arguments); return origLog.apply(console, arguments as any); };
@@ -49,21 +74,19 @@
 
   // Capture unhandled errors and promise rejections
   window.addEventListener('error', (e) => {
-    window.postMessage({
-      __deepwork_console__: true,
+    sendToContentScript('console', {
       level: 'error',
       timestamp: Date.now(),
       message: (e.message || 'Uncaught error') + (e.filename ? ' at ' + e.filename + ':' + e.lineno : ''),
-    }, '*');
+    });
   });
 
   window.addEventListener('unhandledrejection', (e) => {
-    window.postMessage({
-      __deepwork_console__: true,
+    sendToContentScript('console', {
       level: 'error',
       timestamp: Date.now(),
       message: 'Unhandled Promise rejection: ' + (e.reason?.message || String(e.reason)),
-    }, '*');
+    });
   });
 
   // ---- Fetch interception ----
@@ -75,24 +98,22 @@
     const method = (init.method || req?.method || 'GET').toUpperCase();
     const start = Date.now();
     return origFetch.apply(this, args as any).then((response: Response) => {
-      window.postMessage({
-        __deepwork_network__: true,
+      sendToContentScript('network', {
         name: url,
         method,
         initiatorType: 'fetch',
         duration: Date.now() - start,
         responseStatus: response.status,
-      }, '*');
+      });
       return response;
     }).catch((err: any) => {
-      window.postMessage({
-        __deepwork_network__: true,
+      sendToContentScript('network', {
         name: url,
         method,
         initiatorType: 'fetch',
         duration: Date.now() - start,
         responseStatus: 0,
-      }, '*');
+      });
       throw err;
     });
   } as typeof fetch;
@@ -111,14 +132,13 @@
   XMLHttpRequest.prototype.send = function (...args: any[]) {
     const xhr = this;
     xhr.addEventListener('loadend', () => {
-      window.postMessage({
-        __deepwork_network__: true,
+      sendToContentScript('network', {
         name: (xhr as any).__dwUrl || '',
         method: ((xhr as any).__dwMethod || 'GET').toUpperCase(),
         initiatorType: 'xmlhttprequest',
         duration: Date.now() - ((xhr as any).__dwStart || Date.now()),
         responseStatus: xhr.status,
-      }, '*');
+      });
     });
     return origSend.apply(this, args as any);
   };
