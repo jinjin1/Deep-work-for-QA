@@ -11,6 +11,12 @@ AI-native QA workflow platform. Capture bugs with a Chrome extension, manage the
 - **Visual Regression Testing** — Compare screenshots against baselines with pixel-level diff analysis
 - **Web Dashboard** — View, filter, and manage bug reports with status tracking
 
+## Screenshots
+
+| Bug Report with Annotation | Bug Report Detail | Dashboard |
+|:---:|:---:|:---:|
+| <img src="https://github.com/user-attachments/assets/c6ed82c5-b9ae-4cfe-aea2-c232531ebce6" width="300"> | <img src="https://github.com/user-attachments/assets/818e8e62-fe1f-44e2-8412-0335a7fe5ad7" width="300"> | <img src="https://github.com/user-attachments/assets/9b172644-d455-4bd2-9d5c-cab576a57296" width="300"> |
+
 ## Architecture
 
 ```
