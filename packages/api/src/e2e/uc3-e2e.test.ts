@@ -335,30 +335,240 @@ describe('UC-3 E2E: Visual Regression Testing Full Flow', () => {
     });
   });
 
+  // ─── Baselines: project_id filter, response field, pagination ──
+
+  describe('8. Baselines filtering, response fields, and pagination', () => {
+    it('baselines list should include project_id field', async () => {
+      const { json } = await api('GET', '/baselines');
+      expect(json.data.length).toBeGreaterThan(0);
+      for (const b of json.data) {
+        expect(b.project_id).toBeDefined();
+        expect(b.page_url).toBeDefined();
+      }
+    });
+
+    it('baseline detail should include project_id field', async () => {
+      const { json } = await api('GET', '/baselines/demo-baseline-1');
+      expect(json.data.project_id).toBe('proj-default');
+    });
+
+    it('should filter baselines by project_id', async () => {
+      const { status, json } = await api('GET', '/baselines?project_id=proj-default');
+      expect(status).toBe(200);
+      expect(json.data.length).toBeGreaterThanOrEqual(4);
+      for (const b of json.data) {
+        expect(b.project_id).toBe('proj-default');
+      }
+    });
+
+    it('should return empty for non-existent project_id', async () => {
+      const { json } = await api('GET', '/baselines?project_id=non-existent');
+      expect(json.data.length).toBe(0);
+    });
+
+    it('should support pagination with limit and offset', async () => {
+      const { json: page1 } = await api('GET', '/baselines?limit=2&offset=0');
+      const { json: page2 } = await api('GET', '/baselines?limit=2&offset=2');
+      expect(page1.data.length).toBe(2);
+      expect(page2.data.length).toBeGreaterThanOrEqual(2);
+      expect(page1.meta.limit).toBe(2);
+      expect(page1.meta.offset).toBe(0);
+      expect(page1.data[0].id).not.toBe(page2.data[0].id);
+    });
+
+    it('visual diffs list should support pagination', async () => {
+      const { json } = await api('GET', '/visual-diffs?limit=2&offset=0');
+      expect(json.data.length).toBeLessThanOrEqual(2);
+      expect(json.meta.limit).toBe(2);
+    });
+  });
+
+  // ─── Viewport validation ─────────────────────────────────
+
+  describe('9. Viewport validation', () => {
+    it('should reject invalid viewport', async () => {
+      const { status } = await api('POST', '/baselines', {
+        name: 'Bad Viewport', viewport: { width: 'abc', height: 900 },
+      });
+      expect(status).toBe(400);
+    });
+
+    it('should reject negative dimensions', async () => {
+      const { status } = await api('POST', '/baselines', {
+        name: 'Neg Viewport', viewport: { width: -100, height: 900 },
+      });
+      expect(status).toBe(400);
+    });
+
+    it('should accept valid viewport', async () => {
+      const { status } = await api('POST', '/baselines', {
+        name: 'Valid Viewport', viewport: { width: 375, height: 812 },
+      });
+      expect(status).toBe(201);
+    });
+
+    it('should use default viewport if none provided', async () => {
+      const { json } = await api('POST', '/baselines', { name: 'Default VP' });
+      const { json: detail } = await api('GET', `/baselines/${json.data.id}`);
+      expect(detail.data.viewport).toEqual({ width: 1440, height: 900 });
+    });
+  });
+
+  // ─── Bug report linkback ──────────────────────────────────
+
+  describe('10. Bug report linkback to changes', () => {
+    it('should set bug_report_id on regression changes', async () => {
+      const bRes = await api('POST', '/baselines', {
+        name: 'Linkback Test', page_url: 'https://e2e.example.com/linkback',
+        screenshot_url: 'baseline-data',
+      });
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: bRes.json.data.id, current_screenshot_url: 'current-data',
+      });
+      const diffId = dRes.json.data.id;
+      await api('POST', `/visual-diffs/${diffId}/analyze`);
+      const bugRes = await api('POST', `/visual-diffs/${diffId}/bug-report`, {
+        title: 'Linkback Bug', severity: 'major',
+      });
+      const bugReportId = bugRes.json.data.id;
+      const { json } = await api('GET', `/visual-diffs/${diffId}`);
+      const regressions = json.data.changes.filter((c: any) => c.classification === 'regression');
+      for (const ch of regressions) {
+        expect(ch.bug_report_id).toBe(bugReportId);
+      }
+    });
+  });
+
+  // ─── Ignore Regions ──────────────────────────────────────
+
+  describe('11. Ignore regions management', () => {
+    let irBaselineId: string;
+
+    it('Step 1: Create baseline', async () => {
+      const { json } = await api('POST', '/baselines', {
+        name: 'IR Test', page_url: 'https://e2e.example.com/ir', screenshot_url: 'data',
+      });
+      irBaselineId = json.data.id;
+    });
+
+    it('Step 2: Add ignore region', async () => {
+      const { status, json } = await api('POST', `/baselines/${irBaselineId}/ignore-regions`, {
+        region: { x: 0, y: 0, width: 300, height: 50 }, reason: '광고 배너',
+      });
+      expect(status).toBe(201);
+      expect(json.data.region).toEqual({ x: 0, y: 0, width: 300, height: 50 });
+    });
+
+    it('Step 3: Add second ignore region', async () => {
+      await api('POST', `/baselines/${irBaselineId}/ignore-regions`, {
+        region: { x: 100, y: 200, width: 500, height: 300 }, reason: '동적 콘텐츠',
+      });
+    });
+
+    it('Step 4: List ignore regions', async () => {
+      const { json } = await api('GET', `/baselines/${irBaselineId}/ignore-regions`);
+      expect(json.data.length).toBe(2);
+      expect(json.data[0].baseline_id).toBe(irBaselineId);
+    });
+
+    it('Step 5: Delete an ignore region', async () => {
+      const listRes = await api('GET', `/baselines/${irBaselineId}/ignore-regions`);
+      const { status } = await api('DELETE', `/baselines/${irBaselineId}/ignore-regions/${listRes.json.data[0].id}`);
+      expect(status).toBe(200);
+      const afterRes = await api('GET', `/baselines/${irBaselineId}/ignore-regions`);
+      expect(afterRes.json.data.length).toBe(1);
+    });
+
+    it('Step 6: Ignore region filters changes during analysis', async () => {
+      await api('POST', `/baselines/${irBaselineId}/ignore-regions`, {
+        region: { x: 0, y: 0, width: 1440, height: 100 }, reason: 'nav bar',
+      });
+      const dRes = await api('POST', '/visual-diffs', {
+        baseline_id: irBaselineId, current_screenshot_url: 'current-data',
+      });
+      const analyzeRes = await api('POST', `/visual-diffs/${dRes.json.data.id}/analyze`);
+      expect(analyzeRes.json.data.changes.length).toBe(0);
+      expect(analyzeRes.json.data.overall_status).toBe('no_change');
+    });
+
+    it('Step 7: Reject invalid region', async () => {
+      const { status } = await api('POST', `/baselines/${irBaselineId}/ignore-regions`, {
+        region: { x: 0, y: 0 },
+      });
+      expect(status).toBe(400);
+    });
+
+    it('Step 8: 404 for non-existent baseline', async () => {
+      const { status } = await api('GET', '/baselines/non-existent/ignore-regions');
+      expect(status).toBe(404);
+    });
+  });
+
+  // ─── Comparison Runs ───────────────────────────────────────
+
+  describe('12. Batch comparison runs', () => {
+    let runId: string;
+
+    it('Step 1: Start batch run', async () => {
+      const { status, json } = await api('POST', '/comparison-runs', {
+        project_id: 'proj-default', trigger: 'manual',
+      });
+      expect(status).toBe(201);
+      expect(json.data.status).toBe('completed');
+      expect(json.data.total_baselines).toBeGreaterThanOrEqual(4);
+      expect(json.data.visual_diff_ids.length).toBe(json.data.total_baselines);
+      runId = json.data.id;
+    });
+
+    it('Step 2: Get run details', async () => {
+      const { json } = await api('GET', `/comparison-runs/${runId}`);
+      expect(json.data.project_id).toBe('proj-default');
+      const total = json.data.no_change_count + json.data.intentional_count +
+        json.data.regression_count + json.data.uncertain_count;
+      expect(total).toBe(json.data.total_baselines);
+    });
+
+    it('Step 3: List runs', async () => {
+      const { json } = await api('GET', '/comparison-runs');
+      expect(json.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('Step 4: Filter by project_id', async () => {
+      const { json } = await api('GET', '/comparison-runs?project_id=proj-default');
+      for (const r of json.data) expect(r.project_id).toBe('proj-default');
+    });
+
+    it('Step 5: 404 for non-existent run', async () => {
+      const { status } = await api('GET', '/comparison-runs/non-existent');
+      expect(status).toBe(404);
+    });
+
+    it('Step 6: 404 when no baselines', async () => {
+      const { status } = await api('POST', '/comparison-runs', {
+        project_id: 'non-existent-project',
+      });
+      expect(status).toBe(404);
+    });
+  });
+
   // ─── Cleanup ──────────────────────────────────────────────
 
-  describe('8. Cleanup (delete)', () => {
-    it('should delete a baseline and cascade to visual diffs', async () => {
-      // Create temp baseline + diff
+  describe('13. Cleanup (delete with cascade)', () => {
+    it('should cascade delete to diffs and ignore regions', async () => {
       const bRes = await api('POST', '/baselines', {
-        name: 'Temp Baseline',
-        page_url: 'https://temp.example.com',
+        name: 'Temp', page_url: 'https://temp.example.com',
       });
       const bId = bRes.json.data.id;
-
       const dRes = await api('POST', '/visual-diffs', {
-        baseline_id: bId,
-        current_screenshot_url: 'temp',
+        baseline_id: bId, current_screenshot_url: 'temp',
       });
-      const dId = dRes.json.data.id;
-
-      // Delete baseline
+      await api('POST', `/baselines/${bId}/ignore-regions`, {
+        region: { x: 0, y: 0, width: 100, height: 100 },
+      });
       const deleteRes = await api('DELETE', `/baselines/${bId}`);
       expect(deleteRes.status).toBe(200);
-
-      // Visual diff should also be gone
-      const diffRes = await api('GET', `/visual-diffs/${dId}`);
-      expect(diffRes.status).toBe(404);
+      expect((await api('GET', `/visual-diffs/${dRes.json.data.id}`)).status).toBe(404);
+      expect((await api('GET', `/baselines/${bId}/ignore-regions`)).status).toBe(404);
     });
   });
 });

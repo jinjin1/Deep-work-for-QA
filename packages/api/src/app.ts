@@ -4,6 +4,8 @@ import { logger } from 'hono/logger';
 import { bugReportRoutes } from './routes/bug-reports';
 import { baselineRoutes } from './routes/baselines';
 import { visualDiffRoutes } from './routes/visual-diffs';
+import { ignoreRegionRoutes } from './routes/ignore-regions';
+import { comparisonRunRoutes } from './routes/comparison-runs';
 import { aiRoutes } from './routes/ai';
 
 export const app = new Hono();
@@ -19,5 +21,7 @@ app.get('/health', (c) => c.json({ status: 'ok' }));
 // Routes
 app.route('/v1/bug-reports', bugReportRoutes);
 app.route('/v1/baselines', baselineRoutes);
+app.route('/v1/baselines', ignoreRegionRoutes);
 app.route('/v1/visual-diffs', visualDiffRoutes);
+app.route('/v1/comparison-runs', comparisonRunRoutes);
 app.route('/v1/ai', aiRoutes);

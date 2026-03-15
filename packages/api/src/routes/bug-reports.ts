@@ -95,7 +95,6 @@ bugReportRoutes.post('/', async (c) => {
     recordingUrl: body.recording_url || null,
     screenshotUrls: JSON.stringify(body.screenshot_urls || []),
     sessionId: body.session_id || null,
-    visualDiffId: null,
     linearIssueId: null,
     linearIssueUrl: null,
     aiAnalysisStatus: 'pending' as const,
