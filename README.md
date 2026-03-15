@@ -1,5 +1,7 @@
 # Deep Work
 
+[한글 README](./README.ko.md)
+
 AI-native QA workflow platform. Capture bugs with a Chrome extension, manage them in a web dashboard.
 
 ## Features
