@@ -15,8 +15,15 @@ export function Popup() {
   const [screenshotError, setScreenshotError] = useState('');
 
   const handleScreenshot = () => {
-    chrome.runtime.sendMessage({ type: 'START_REGION_CAPTURE' });
-    window.close();
+    setScreenshotStatus('capturing');
+    chrome.runtime.sendMessage({ type: 'START_REGION_CAPTURE' }, (response) => {
+      if (response?.success) {
+        window.close();
+      } else {
+        setScreenshotStatus('error');
+        setScreenshotError(response?.error || '캡처 시작 실패');
+      }
+    });
   };
 
   return (
