@@ -635,13 +635,14 @@ function injectAnnotationOverlay(imageDataUrl: string) {
           title, description: descInput.value.trim() || undefined,
           severity: selectedSeverity, screenshotDataUrl: finalDataUrl, pageUrl: window.location.href,
         },
-      }, (response: { success: boolean; error?: string; reportId?: string }) => {
+      }, (response: { success: boolean; error?: string; reportId?: string; webBase?: string }) => {
         if (response?.success) {
           formPanel.innerHTML = '';
           Object.assign(formPanel.style, {
             justifyContent: 'center', alignItems: 'center',
             minHeight: '300px', overflow: 'visible',
           });
+          const webBase = response.webBase || 'http://localhost:3000';
           const successDiv = document.createElement('div');
           Object.assign(successDiv.style, {
             padding: '48px 24px', textAlign: 'center', display: 'flex',
@@ -661,7 +662,7 @@ function injectAnnotationOverlay(imageDataUrl: string) {
           Object.assign(subMsg.style, { fontSize: '12px', color: TEXT_MUTED, fontFamily: 'monospace' });
           // Copy link to clipboard
           if (response.reportId) {
-            const reportLink = `${WEB_BASE}/bug-reports/${response.reportId}`;
+            const reportLink = `${webBase}/bug-reports/${response.reportId}`;
             navigator.clipboard.writeText(reportLink).catch(() => {});
             const copiedMsg = document.createElement('div');
             copiedMsg.textContent = 'Link copied to clipboard';
@@ -681,7 +682,7 @@ function injectAnnotationOverlay(imageDataUrl: string) {
             viewBtn.onmouseenter = () => { viewBtn.style.background = '#4f46e5'; };
             viewBtn.onmouseleave = () => { viewBtn.style.background = ACCENT; };
             viewBtn.onclick = () => {
-              window.open(`${WEB_BASE}/bug-reports/${response.reportId}`, '_blank');
+              window.open(`${webBase}/bug-reports/${response.reportId}`, '_blank');
               root.remove(); document.removeEventListener('keydown', onKey, true);
             };
             btnRow.appendChild(viewBtn);
@@ -952,7 +953,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (ssDataUrl) {
             chrome.storage.local.set({ screenshotData: { dataUrl: ssDataUrl, timestamp: Date.now() } });
           }
-          sendResponse({ success: true, reportId: json?.data?.id });
+          sendResponse({ success: true, reportId: json?.data?.id, webBase: WEB_BASE });
         } catch (err) {
           console.error('[Deep Work] Submit failed:', err);
           sendResponse({ success: false, error: String(err) });
