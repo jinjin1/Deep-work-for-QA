@@ -26,12 +26,13 @@ app.use('*', secureHeaders({
 }));
 
 // CORS — configurable via CORS_ORIGIN env var (comma-separated origins)
-// Defaults to localhost origins only; set CORS_ORIGIN=* to allow all (not recommended for production)
+// When not set, allows all origins (*) for easy LAN/local setup.
+// Set explicit origins (e.g. CORS_ORIGIN=http://192.168.1.50:3000) for production.
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use('*', cors({
   origin: corsOrigin
     ? corsOrigin === '*' ? '*' : corsOrigin.split(',').map((o) => o.trim())
-    : ['http://localhost:3000', 'http://localhost:5173'],
+    : '*',
 }));
 
 app.use('*', logger());
