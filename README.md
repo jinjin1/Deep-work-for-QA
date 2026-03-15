@@ -1,4 +1,4 @@
-# Deep Work
+# Deep Work for QA
 
 [한글 README](./README.ko.md)
 
