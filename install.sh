@@ -70,12 +70,7 @@ fi
 # Create data directory
 mkdir -p "$DATA_DIR/uploads"
 
-# ─── 3. Build ───
-echo "[5/5] Installing dependencies and building..."
-pnpm install
-pnpm build
-
-# ─── 4. Configure ───
+# ─── 3. Configure (must happen before build for NEXT_PUBLIC_* env vars) ───
 if [ ! -f "$INSTALL_DIR/.env" ]; then
   cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
   # Set production data paths
@@ -91,13 +86,19 @@ LAN_IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | head -1 | a
 sed -i.bak "s|NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=http://${LAN_IP}:3001/v1|" "$INSTALL_DIR/.env"
 rm -f "$INSTALL_DIR/.env.bak"
 
-# ─── 5. Start with pm2 ───
-cd "$INSTALL_DIR"
+# ─── 4. Build (after .env so NEXT_PUBLIC_API_URL is inlined at build time) ───
+echo "[5/5] Installing dependencies and building..."
+pnpm install
 
-# Source env vars
+# Source env vars so NEXT_PUBLIC_API_URL is available during build
 set -a
 source "$INSTALL_DIR/.env"
 set +a
+
+pnpm build
+
+# ─── 5. Start with pm2 ───
+cd "$INSTALL_DIR"
 
 pm2 delete deep-work-api 2>/dev/null || true
 pm2 delete deep-work-web 2>/dev/null || true
