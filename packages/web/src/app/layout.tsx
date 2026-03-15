@@ -24,12 +24,11 @@ function Sidebar() {
     <aside className="w-56 border-r border-border bg-surface px-5 py-6 flex flex-col">
       <div className="mb-10">
         <h1 className="text-base font-bold tracking-tight text-text-primary">Deep Work</h1>
-        <p className="text-[11px] text-text-muted tracking-wide uppercase mt-0.5">QA Platform</p>
+        <p className="text-[11px] text-text-muted tracking-wide uppercase mt-0.5">for QA</p>
       </div>
       <nav className="flex flex-col gap-0.5 flex-1 text-sm">
         <NavItem href="/" label="대시보드" />
         <NavItem href="/bug-reports" label="버그 리포트" />
-        <NavItem href="/visual" label="시각적 테스트" />
       </nav>
       <div className="pt-4 border-t border-border">
         <NavItem href="/settings" label="설정" />
