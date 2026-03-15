@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# ─── Deep Work Installer ───────────────────────────────────
+# ─── Deep Work for QA Installer ────────────────────────────
 # One-line install: curl -fsSL <url>/install.sh | bash
 
 INSTALL_DIR="${DEEP_WORK_DIR:-$HOME/deep-work-for-qa}"
@@ -9,7 +9,7 @@ DATA_DIR="$INSTALL_DIR/data"
 REPO_URL="https://github.com/jinjin1/Deep-work-for-QA.git"
 
 echo ""
-echo "  Deep Work — AI Native QA Workflow Platform"
+echo "  Deep Work for QA — AI Native QA Workflow Platform"
 echo "  ─────────────────────────────────────────────"
 echo ""
 
@@ -58,11 +58,11 @@ fi
 
 # ─── 2. Download / Update Deep Work ───
 if [ -d "$INSTALL_DIR/.git" ]; then
-  echo "[4/5] Updating Deep Work..."
+  echo "[4/5] Updating Deep Work for QA..."
   cd "$INSTALL_DIR"
   git pull --ff-only
 else
-  echo "[4/5] Downloading Deep Work..."
+  echo "[4/5] Downloading Deep Work for QA..."
   git clone "$REPO_URL" "$INSTALL_DIR"
   cd "$INSTALL_DIR"
 fi
@@ -117,7 +117,7 @@ pm2 startup 2>/dev/null || true
 
 echo ""
 echo "  ─────────────────────────────────────────────"
-echo "  Deep Work is running!"
+echo "  Deep Work for QA is running!"
 echo ""
 echo "  Web Dashboard:  http://${LAN_IP}:3000"
 echo "  API Server:     http://${LAN_IP}:3001"

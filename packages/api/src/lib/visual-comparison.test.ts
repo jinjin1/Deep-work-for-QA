@@ -8,7 +8,7 @@ import {
   type PixelDiffResult,
   type BoundingBox,
   type VisualAnalysisResult,
-} from './visual-comparison';
+} from './visual-comparison.js';
 
 describe('Visual Comparison Engine', () => {
   // ─── Stage 1: Pixel Diff ─────────────────────────────────────

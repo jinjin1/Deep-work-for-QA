@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-import { bugReportRoutes } from './routes/bug-reports';
-import { baselineRoutes } from './routes/baselines';
-import { visualDiffRoutes } from './routes/visual-diffs';
-import { ignoreRegionRoutes } from './routes/ignore-regions';
-import { comparisonRunRoutes } from './routes/comparison-runs';
-import { aiRoutes } from './routes/ai';
-import { uploadRoutes } from './routes/uploads';
+import { bugReportRoutes } from './routes/bug-reports.js';
+import { baselineRoutes } from './routes/baselines.js';
+import { visualDiffRoutes } from './routes/visual-diffs.js';
+import { ignoreRegionRoutes } from './routes/ignore-regions.js';
+import { comparisonRunRoutes } from './routes/comparison-runs.js';
+import { aiRoutes } from './routes/ai.js';
+import { uploadRoutes } from './routes/uploads.js';
 
 export const app = new Hono();
 

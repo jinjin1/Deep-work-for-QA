@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import { db } from '../db';
-import { visualDiffs, baselines, bugReports, ignoreRegions } from '../db/schema';
+import { db } from '../db/index.js';
+import { visualDiffs, baselines, bugReports, ignoreRegions } from '../db/schema.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { PNG } from 'pngjs';
-import { generateMockVisualAnalysis, runVisualComparison, type BoundingBox } from '../lib/visual-comparison';
+import { generateMockVisualAnalysis, runVisualComparison, type BoundingBox } from '../lib/visual-comparison.js';
 
 export const visualDiffRoutes = new Hono();
 

@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import { db } from '../db';
-import { comparisonRuns, baselines, visualDiffs } from '../db/schema';
+import { db } from '../db/index.js';
+import { comparisonRuns, baselines, visualDiffs } from '../db/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { generateMockVisualAnalysis, type BoundingBox } from '../lib/visual-comparison';
+import { generateMockVisualAnalysis, type BoundingBox } from '../lib/visual-comparison.js';
 
 export const comparisonRunRoutes = new Hono();
 

@@ -3,8 +3,8 @@ import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import * as schema from './schema';
-import { seedDefaults } from './seed';
+import * as schema from './schema.js';
+import { seedDefaults } from './seed.js';
 
 // Use DB_PATH env var if set, otherwise resolve relative to packages/api/
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

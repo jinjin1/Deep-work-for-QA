@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { app } from '../app';
+import { app } from '../app.js';
 
 // Helper to make requests against Hono app
 async function api(method: string, path: string, body?: any) {

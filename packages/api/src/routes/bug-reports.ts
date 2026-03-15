@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import { db } from '../db';
-import { bugReports } from '../db/schema';
+import { db } from '../db/index.js';
+import { bugReports } from '../db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { generateMockReproSteps } from './ai';
-import { processScreenshotUrls } from './uploads';
+import { generateMockReproSteps } from './ai.js';
+import { processScreenshotUrls } from './uploads.js';
 
 export const bugReportRoutes = new Hono();
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { db } from '../db';
-import { baselines, visualDiffs, ignoreRegions } from '../db/schema';
+import { db } from '../db/index.js';
+import { baselines, visualDiffs, ignoreRegions } from '../db/schema.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 

@@ -1,7 +1,7 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { detectAnomalies } from '../lib/anomaly-detector';
+import { detectAnomalies } from '../lib/anomaly-detector.js';
 
 export function seedDefaults(db: BetterSQLite3Database<any>) {
   const now = new Date().toISOString();
