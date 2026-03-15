@@ -4,6 +4,7 @@ import { bugReports } from '../db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { generateMockReproSteps } from './ai';
+import { processScreenshotUrls } from './uploads';
 
 export const bugReportRoutes = new Hono();
 
@@ -93,7 +94,7 @@ bugReportRoutes.post('/', async (c) => {
     reproSteps: null,
     aiSummary: null,
     recordingUrl: body.recording_url || null,
-    screenshotUrls: JSON.stringify(body.screenshot_urls || []),
+    screenshotUrls: JSON.stringify(processScreenshotUrls(body.screenshot_urls || [])),
     sessionId: body.session_id || null,
     linearIssueId: null,
     linearIssueUrl: null,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { fetchBugReport, updateBugReport } from '@/lib/api';
+import { fetchBugReport, updateBugReport, resolveScreenshotUrl } from '@/lib/api';
 
 interface ConsoleLog {
   level: string;
@@ -64,10 +64,10 @@ const consoleLevelColor: Record<string, string> = {
 };
 
 const aiStatusLabel: Record<string, { text: string; color: string }> = {
-  pending: { text: '대기 중', color: 'text-text-muted' },
-  processing: { text: '분석 중...', color: 'text-warning-600' },
-  completed: { text: '완료', color: 'text-success-600' },
-  failed: { text: '실패', color: 'text-accent' },
+  pending: { text: 'Pending', color: 'text-text-muted' },
+  processing: { text: 'Analyzing...', color: 'text-warning-600' },
+  completed: { text: 'Completed', color: 'text-success-600' },
+  failed: { text: 'Failed', color: 'text-accent' },
 };
 
 export default function BugReportDetailPage() {
@@ -114,7 +114,7 @@ export default function BugReportDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-text-muted text-sm">로딩 중...</div>
+        <div className="text-text-muted text-sm">Loading...</div>
       </div>
     );
   }
@@ -123,10 +123,10 @@ export default function BugReportDetailPage() {
     return (
       <div>
         <a href="/bug-reports" className="text-sm text-text-secondary hover:text-text-primary mb-4 inline-block">
-          &larr; 목록으로
+          &larr; Back to list
         </a>
         <div className="border-l-2 border-accent bg-accent-light px-4 py-3 text-sm">
-          {error || '버그 리포트를 찾을 수 없습니다'}
+          {error || 'Bug report not found'}
         </div>
       </div>
     );
@@ -142,7 +142,7 @@ export default function BugReportDetailPage() {
   return (
     <div>
       <a href="/bug-reports" className="text-sm text-text-secondary hover:text-text-primary mb-6 inline-block">
-        &larr; 목록으로
+        &larr; Back to list
       </a>
 
       {/* Header */}
@@ -167,13 +167,13 @@ export default function BugReportDetailPage() {
               </a>
             ) : '—'}
           </Detail>
-          <Detail label="Created">{new Date(report.createdAt).toLocaleString('ko-KR')}</Detail>
-          {report.updatedAt && <Detail label="Updated">{new Date(report.updatedAt).toLocaleString('ko-KR')}</Detail>}
+          <Detail label="Created">{new Date(report.createdAt).toLocaleString()}</Detail>
+          {report.updatedAt && <Detail label="Updated">{new Date(report.updatedAt).toLocaleString()}</Detail>}
           <Detail label="ID"><span className="font-mono text-xs text-text-muted">{report.id}</span></Detail>
         </div>
 
         <div className="mt-4 pt-4 border-t border-border">
-          <span className="text-xs uppercase tracking-widest text-text-muted mr-3">상태 변경</span>
+          <span className="text-xs uppercase tracking-widest text-text-muted mr-3">Change Status</span>
           <div className="inline-flex gap-1.5 mt-1">
             {(['open', 'in_progress', 'resolved', 'closed'] as const).map((s) => (
               <button
@@ -195,7 +195,7 @@ export default function BugReportDetailPage() {
 
       {/* Environment */}
       {env && Object.keys(env).length > 0 && (
-        <Section title="환경 정보">
+        <Section title="Environment">
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
             {env.browser && <Detail label="Browser">{env.browser}</Detail>}
             {env.platform && <Detail label="Platform">{env.platform}</Detail>}
@@ -208,12 +208,12 @@ export default function BugReportDetailPage() {
 
       {/* Screenshots */}
       {report.screenshotUrls && report.screenshotUrls.length > 0 && (
-        <Section title="스크린샷">
+        <Section title="Screenshots">
           <div className="grid grid-cols-1 gap-4">
             {report.screenshotUrls.map((url, index) => (
-              <a key={index} href={url} target="_blank" rel="noopener noreferrer">
+              <a key={index} href={resolveScreenshotUrl(url)} target="_blank" rel="noopener noreferrer">
                 <img
-                  src={url}
+                  src={resolveScreenshotUrl(url)}
                   alt={`Screenshot ${index + 1}`}
                   className="w-full rounded border border-border hover:opacity-90 transition-opacity"
                 />
@@ -224,9 +224,9 @@ export default function BugReportDetailPage() {
       )}
 
       {/* AI Analysis */}
-      <Section title="AI 분석">
+      <Section title="AI Analysis">
         <div className="mb-3 text-sm">
-          <span className="text-text-muted">분석 상태: </span>
+          <span className="text-text-muted">Status: </span>
           <span className={`font-medium ${aiStatusLabel[report.aiAnalysisStatus]?.color || 'text-text-muted'}`}>
             {aiStatusLabel[report.aiAnalysisStatus]?.text || report.aiAnalysisStatus}
           </span>
@@ -240,7 +240,7 @@ export default function BugReportDetailPage() {
 
         {report.reproSteps && report.reproSteps.length > 0 && (
           <div>
-            <div className="text-xs uppercase tracking-widest text-text-muted mb-2">재현 단계</div>
+            <div className="text-xs uppercase tracking-widest text-text-muted mb-2">Reproduction Steps</div>
             <ol className="list-decimal list-inside space-y-1.5">
               {report.reproSteps.map((step: any, index: number) => (
                 <li key={index} className="text-sm text-text-secondary">
@@ -252,7 +252,7 @@ export default function BugReportDetailPage() {
         )}
 
         {report.aiAnalysisStatus === 'completed' && !report.reproSteps && !report.aiSummary && (
-          <div className="text-sm text-text-muted">분석 결과 없음</div>
+          <div className="text-sm text-text-muted">No analysis results</div>
         )}
       </Section>
 
@@ -263,7 +263,7 @@ export default function BugReportDetailPage() {
           onClick={() => setShowConsoleLogs(!showConsoleLogs)}
         >
           <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
-            콘솔 로그 ({report.consoleLogs?.length || 0})
+            Console Logs ({report.consoleLogs?.length || 0})
           </span>
           <span className="text-text-muted text-sm">{showConsoleLogs ? '−' : '+'}</span>
         </button>
@@ -296,7 +296,7 @@ export default function BugReportDetailPage() {
               </div>
             ) : (
               <div className="py-6 text-center text-sm text-text-muted">
-                콘솔 로그가 수집되지 않았습니다
+                No console logs collected
               </div>
             )}
           </div>
@@ -310,7 +310,7 @@ export default function BugReportDetailPage() {
           onClick={() => setShowNetworkLogs(!showNetworkLogs)}
         >
           <span className="text-xs font-medium uppercase tracking-widest text-text-muted">
-            네트워크 로그 ({report.networkLogs?.length || 0})
+            Network Logs ({report.networkLogs?.length || 0})
           </span>
           <span className="text-text-muted text-sm">{showNetworkLogs ? '−' : '+'}</span>
         </button>
@@ -340,15 +340,15 @@ export default function BugReportDetailPage() {
                   <div className="px-4 py-2 bg-bg border-b border-border flex items-center justify-between">
                     <span className="text-xs text-text-muted">
                       {showAllNetworkLogs
-                        ? `전체 ${allLogs.length}개`
-                        : `주요 ${importantLogs.length}개 (${hiddenCount}개 숨김)`}
+                        ? `All ${allLogs.length} requests`
+                        : `${importantLogs.length} important (${hiddenCount} hidden)`}
                     </span>
                     {hiddenCount > 0 && (
                       <button
                         onClick={() => setShowAllNetworkLogs(!showAllNetworkLogs)}
                         className="text-xs text-text-secondary hover:text-text-primary underline underline-offset-2"
                       >
-                        {showAllNetworkLogs ? '주요만' : '전체'}
+                        {showAllNetworkLogs ? 'Important only' : 'Show all'}
                       </button>
                     )}
                   </div>
@@ -385,13 +385,13 @@ export default function BugReportDetailPage() {
                   </table>
                   </div>
                   {displayLogs.length === 0 && (
-                    <div className="py-6 text-center text-sm text-text-muted">주요 네트워크 요청 없음</div>
+                    <div className="py-6 text-center text-sm text-text-muted">No important network requests</div>
                   )}
                 </>
               );
             })() : (
               <div className="py-6 text-center text-sm text-text-muted">
-                네트워크 로그가 수집되지 않았습니다
+                No network logs collected
               </div>
             )}
           </div>
