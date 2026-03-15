@@ -90,6 +90,29 @@ Copy `.env.example` to `.env` and configure:
 
 > **Note**: The install script (Option A) configures `.env` automatically with your local IP address.
 
+## Team Usage
+
+Multiple team members can report bugs to the same server. Only **one person** needs to run the server — everyone else just installs the Chrome extension.
+
+### Same Wi-Fi Network
+
+Team members just need to:
+
+1. Install the Chrome extension (load `packages/extension/dist`)
+2. Set the server IP in extension options to the host machine's IP (e.g. `192.168.1.50`)
+
+### Remote / Different Network
+
+Use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (free) to expose your local server:
+
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:3001
+# Outputs: https://xxx-xxx.trycloudflare.com
+```
+
+Team members enter the tunnel URL in the extension options instead of a local IP.
+
 ## Project Structure
 
 ```

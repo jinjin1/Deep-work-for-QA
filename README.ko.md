@@ -90,6 +90,29 @@ pnpm dev          # API (포트 3001) + Web (포트 3000) 시작
 
 > **참고**: 설치 스크립트(방법 A)를 사용하면 `.env`가 로컬 IP 주소로 자동 설정됩니다.
 
+## 팀 사용법
+
+여러 팀원이 같은 서버에 버그를 리포트할 수 있습니다. **서버는 한 명만** 실행하면 되고, 나머지 팀원은 Chrome 확장 프로그램만 설치하면 됩니다.
+
+### 같은 Wi-Fi 네트워크
+
+팀원이 해야 할 것:
+
+1. Chrome 확장 프로그램 설치 (`packages/extension/dist` 로드)
+2. 확장 프로그램 옵션에서 서버 IP를 호스트 컴퓨터의 IP로 설정 (예: `192.168.1.50`)
+
+### 원격 / 다른 네트워크
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (무료)을 사용하면 로컬 서버를 외부에 노출할 수 있습니다:
+
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:3001
+# 출력: https://xxx-xxx.trycloudflare.com
+```
+
+팀원은 로컬 IP 대신 터널 URL을 확장 프로그램 옵션에 입력하면 됩니다.
+
 ## 프로젝트 구조
 
 ```
