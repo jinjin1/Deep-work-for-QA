@@ -28,13 +28,24 @@ Web Dashboard (Next.js)
 
 ## Quick Start
 
-### Option A: Install Script (recommended for Mac)
+### Option A: Install Script (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jinjin1/Deep-work-for-QA/main/install.sh | bash
 ```
 
-This installs Node.js, builds the project, and starts servers with auto-restart on boot.
+This handles everything automatically:
+- Installs prerequisites (Node.js, pnpm, pm2)
+- Clones and builds the project
+- Starts API + Web servers with pm2 (auto-restart on boot)
+- Configures `.env` with your local IP
+
+After installation, load the Chrome extension:
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode**
+3. Click **Load unpacked** → select the path shown in the install output (e.g. `~/deep-work-for-qa/packages/extension/dist`)
+4. Right-click the extension icon > **Options** → enter the server IP shown in the install output
 
 ### Option B: Docker Compose
 
@@ -52,17 +63,16 @@ docker compose up -d
 git clone https://github.com/jinjin1/Deep-work-for-QA.git
 cd Deep-work-for-QA
 pnpm install
+cp .env.example .env
 pnpm dev          # Starts API (port 3001) + Web (port 3000)
-pnpm dev:all      # Also starts extension dev server (port 5173)
 ```
 
-## Chrome Extension Setup
+For the Chrome extension in development:
 
-1. Build the extension: `pnpm --filter @deep-work/extension build`
-2. Open `chrome://extensions` in Chrome
-3. Enable **Developer mode**
-4. Click **Load unpacked** and select `packages/extension/dist`
-5. Right-click the extension icon > **Options** to set your server IP
+1. `pnpm --filter @deep-work/extension build`
+2. Open `chrome://extensions` → Enable **Developer mode**
+3. Click **Load unpacked** → select `packages/extension/dist`
+4. Right-click the extension icon > **Options** → set server IP
 
 ## Configuration
 
@@ -71,12 +81,14 @@ Copy `.env.example` to `.env` and configure:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3001` | API server port |
-| `DB_PATH` | `./dev.db` | SQLite database file path |
+| `DB_PATH` | `./data/deep-work.db` | SQLite database file path |
 | `UPLOADS_DIR` | `./data/uploads` | Screenshot file storage |
 | `SEED_DEMO_DATA` | `false` | Set `true` to seed demo data |
 | `DEEP_WORK_API_KEY` | _(empty)_ | Optional API key for authentication |
-| `CORS_ORIGIN` | `*` | Allowed CORS origins (comma-separated) |
+| `CORS_ORIGIN` | _(empty)_ | Allowed CORS origins (comma-separated), empty = `*` |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:3001/v1` | API URL for the web dashboard |
+
+> **Note**: The install script (Option A) configures `.env` automatically with your local IP address.
 
 ## Project Structure
 
@@ -86,6 +98,7 @@ packages/
   web/          — Web dashboard (Next.js)
   extension/    — Chrome extension (Vite + CRXJS)
   shared/       — Shared TypeScript types
+e2e/            — Playwright E2E tests
 ```
 
 ## Scripts
@@ -98,7 +111,6 @@ packages/
 | `pnpm test:e2e` | Run Playwright E2E tests |
 | `pnpm typecheck` | TypeScript type checking |
 | `pnpm lint` | Lint all packages |
-| `pnpm db:studio` | Open Drizzle Studio (database GUI) |
 | `pnpm db:reset` | Delete database (re-seeds on restart) |
 
 ## License
