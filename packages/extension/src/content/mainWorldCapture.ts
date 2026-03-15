@@ -68,7 +68,7 @@
 
   // ---- Fetch interception ----
   const origFetch = window.fetch;
-  window.fetch = function (...args: any[]) {
+  window.fetch = function (this: Window, ...args: any[]) {
     const req = args[0];
     const url = typeof req === 'string' ? req : (req?.url || '');
     const init = args[1] || {};

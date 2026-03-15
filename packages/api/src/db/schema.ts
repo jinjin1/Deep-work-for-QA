@@ -77,3 +77,27 @@ export const visualDiffs = sqliteTable('visual_diffs', {
   createdBy: text('created_by').notNull().references(() => users.id),
   createdAt: text('created_at').notNull(),
 });
+
+export const ignoreRegions = sqliteTable('ignore_regions', {
+  id: text('id').primaryKey(),
+  baselineId: text('baseline_id').notNull().references(() => baselines.id),
+  region: text('region').notNull(), // JSON { x, y, width, height }
+  reason: text('reason'),
+  createdAt: text('created_at').notNull(),
+});
+
+export const comparisonRuns = sqliteTable('comparison_runs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id),
+  trigger: text('trigger', { enum: ['manual', 'scheduled'] }).notNull().default('manual'),
+  status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] }).notNull().default('pending'),
+  totalBaselines: text('total_baselines').notNull().default('0'),
+  noChangeCount: text('no_change_count').notNull().default('0'),
+  intentionalCount: text('intentional_count').notNull().default('0'),
+  regressionCount: text('regression_count').notNull().default('0'),
+  uncertainCount: text('uncertain_count').notNull().default('0'),
+  visualDiffIds: text('visual_diff_ids').notNull().default('[]'), // JSON array
+  createdBy: text('created_by').notNull().references(() => users.id),
+  createdAt: text('created_at').notNull(),
+  completedAt: text('completed_at'),
+});

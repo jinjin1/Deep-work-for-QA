@@ -1,25 +1,46 @@
 import { Hono } from 'hono';
 import { db } from '../db';
-import { baselines, visualDiffs } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { baselines, visualDiffs, ignoreRegions } from '../db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 export const baselineRoutes = new Hono();
 
-// GET /v1/baselines - List all baselines
+// Helper to format baseline for response
+function formatBaseline(b: typeof baselines.$inferSelect) {
+  return {
+    ...b,
+    project_id: b.projectId,
+    viewport: JSON.parse(b.viewport),
+    page_url: b.pageUrl,
+    screenshot_url: b.screenshotUrl,
+    created_by: b.createdBy,
+    created_at: b.createdAt,
+    updated_at: b.updatedAt,
+  };
+}
+
+// GET /v1/baselines - List baselines with optional filters and pagination
 baselineRoutes.get('/', async (c) => {
-  const result = await db.select().from(baselines).orderBy(baselines.createdAt);
+  const projectId = c.req.query('project_id');
+  const limit = Math.min(Number(c.req.query('limit')) || 50, 100);
+  const offset = Number(c.req.query('offset')) || 0;
+
+  let result;
+  if (projectId) {
+    result = await db.select().from(baselines)
+      .where(eq(baselines.projectId, projectId))
+      .orderBy(baselines.createdAt)
+      .limit(limit).offset(offset);
+  } else {
+    result = await db.select().from(baselines)
+      .orderBy(baselines.createdAt)
+      .limit(limit).offset(offset);
+  }
+
   return c.json({
-    data: result.map((b) => ({
-      ...b,
-      viewport: JSON.parse(b.viewport),
-      page_url: b.pageUrl,
-      screenshot_url: b.screenshotUrl,
-      created_by: b.createdBy,
-      created_at: b.createdAt,
-      updated_at: b.updatedAt,
-    })),
-    meta: { request_id: uuid(), timestamp: new Date().toISOString() },
+    data: result.map(formatBaseline),
+    meta: { request_id: uuid(), timestamp: new Date().toISOString(), limit, offset },
   });
 });
 
@@ -31,15 +52,7 @@ baselineRoutes.get('/:id', async (c) => {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Baseline not found' } }, 404);
   }
   return c.json({
-    data: {
-      ...baseline,
-      viewport: JSON.parse(baseline.viewport),
-      page_url: baseline.pageUrl,
-      screenshot_url: baseline.screenshotUrl,
-      created_by: baseline.createdBy,
-      created_at: baseline.createdAt,
-      updated_at: baseline.updatedAt,
-    },
+    data: formatBaseline(baseline),
     meta: { request_id: uuid(), timestamp: new Date().toISOString() },
   });
 });
@@ -50,6 +63,14 @@ baselineRoutes.post('/', async (c) => {
 
   if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
     return c.json({ error: { code: 'VALIDATION_ERROR', message: 'name is required' } }, 400);
+  }
+
+  // Validate viewport if provided
+  if (body.viewport) {
+    const { width, height } = body.viewport;
+    if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', message: 'viewport must have positive numeric width and height' } }, 400);
+    }
   }
 
   const id = uuid();
@@ -109,6 +130,7 @@ baselineRoutes.delete('/:id', async (c) => {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Baseline not found' } }, 404);
   }
 
+  await db.delete(ignoreRegions).where(eq(ignoreRegions.baselineId, id));
   await db.delete(visualDiffs).where(eq(visualDiffs.baselineId, id));
   await db.delete(baselines).where(eq(baselines.id, id));
   return c.json({
