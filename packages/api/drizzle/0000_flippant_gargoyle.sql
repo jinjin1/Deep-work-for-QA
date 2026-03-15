@@ -141,3 +141,30 @@ CREATE TABLE `visual_diffs` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
+--> statement-breakpoint
+CREATE TABLE `ignore_regions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`baseline_id` text NOT NULL,
+	`region` text NOT NULL,
+	`reason` text,
+	`created_at` text NOT NULL,
+	FOREIGN KEY (`baseline_id`) REFERENCES `baselines`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `comparison_runs` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`trigger` text DEFAULT 'manual' NOT NULL,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`total_baselines` text DEFAULT '0' NOT NULL,
+	`no_change_count` text DEFAULT '0' NOT NULL,
+	`intentional_count` text DEFAULT '0' NOT NULL,
+	`regression_count` text DEFAULT '0' NOT NULL,
+	`uncertain_count` text DEFAULT '0' NOT NULL,
+	`visual_diff_ids` text DEFAULT '[]' NOT NULL,
+	`created_by` text NOT NULL,
+	`created_at` text NOT NULL,
+	`completed_at` text,
+	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { db } from '../db';
-import { visualDiffs, baselines, bugReports } from '../db/schema';
+import { visualDiffs, baselines, bugReports, ignoreRegions } from '../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { PNG } from 'pngjs';
@@ -13,8 +13,8 @@ visualDiffRoutes.get('/', async (c) => {
   const baselineId = c.req.query('baseline_id');
   const status = c.req.query('status');
   const projectId = c.req.query('project_id');
-
-  let query = db.select().from(visualDiffs).orderBy(desc(visualDiffs.createdAt));
+  const limit = Math.min(Number(c.req.query('limit')) || 50, 100);
+  const offset = Number(c.req.query('offset')) || 0;
 
   // Apply filters using chained where conditions
   const conditions = [];
@@ -26,15 +26,19 @@ visualDiffRoutes.get('/', async (c) => {
   if (conditions.length > 0) {
     result = await db.select().from(visualDiffs)
       .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-      .orderBy(desc(visualDiffs.createdAt));
+      .orderBy(desc(visualDiffs.createdAt))
+      .limit(limit).offset(offset);
   } else {
-    result = await db.select().from(visualDiffs).orderBy(desc(visualDiffs.createdAt));
+    result = await db.select().from(visualDiffs)
+      .orderBy(desc(visualDiffs.createdAt))
+      .limit(limit).offset(offset);
   }
 
   return c.json({
     data: result.map((d) => ({
       ...d,
       changes: JSON.parse(d.changes),
+      project_id: d.projectId,
       baseline_id: d.baselineId,
       current_screenshot_url: d.currentScreenshotUrl,
       diff_image_url: d.diffImageUrl,
@@ -43,7 +47,7 @@ visualDiffRoutes.get('/', async (c) => {
       created_by: d.createdBy,
       created_at: d.createdAt,
     })),
-    meta: { request_id: uuid(), timestamp: new Date().toISOString() },
+    meta: { request_id: uuid(), timestamp: new Date().toISOString(), limit, offset },
   });
 });
 
@@ -62,6 +66,7 @@ visualDiffRoutes.get('/:id', async (c) => {
     data: {
       ...diff,
       changes: JSON.parse(diff.changes),
+      project_id: diff.projectId,
       baseline_id: diff.baselineId,
       current_screenshot_url: diff.currentScreenshotUrl,
       diff_image_url: diff.diffImageUrl,
@@ -146,6 +151,10 @@ visualDiffRoutes.post('/:id/analyze', async (c) => {
   const [baseline] = await db.select().from(baselines).where(eq(baselines.id, diff.baselineId));
   const pageUrl = baseline?.pageUrl || '';
 
+  // Get ignore regions for this baseline
+  const ignoreRegionRows = await db.select().from(ignoreRegions).where(eq(ignoreRegions.baselineId, diff.baselineId));
+  const ignoreRects = ignoreRegionRows.map((r) => JSON.parse(r.region));
+
   let analysis;
 
   // Try real pixel comparison if both screenshots are data: URLs
@@ -173,6 +182,37 @@ visualDiffRoutes.post('/:id/analyze', async (c) => {
       { x: 200, y: 300, width: 400, height: 200 },
     ];
     analysis = { ...generateMockVisualAnalysis(mockRegions, pageUrl), diffPixelCount: undefined, diffPercentage: undefined };
+  }
+
+  // Filter out changes that overlap with ignore regions
+  if (ignoreRects.length > 0) {
+    analysis.changes = analysis.changes.filter((change: any) => {
+      const cr = change.region;
+      return !ignoreRects.some((ir: any) =>
+        cr.x < ir.x + ir.width && cr.x + cr.width > ir.x &&
+        cr.y < ir.y + ir.height && cr.y + cr.height > ir.y,
+      );
+    });
+    // Recalculate overall status and summary after filtering
+    if (analysis.changes.length === 0) {
+      analysis.overall_status = 'no_change';
+      analysis.summary = '무시 영역을 제외한 결과 변경 사항이 없습니다.';
+    } else {
+      const hasReg = analysis.changes.some((c: any) => c.classification === 'regression');
+      const hasInt = analysis.changes.some((c: any) => c.classification === 'intentional');
+      const hasUnc = analysis.changes.some((c: any) => c.classification === 'uncertain');
+      if (hasReg && (hasInt || hasUnc)) analysis.overall_status = 'mixed';
+      else if (hasReg) analysis.overall_status = 'regression';
+      else if (hasInt && hasUnc) analysis.overall_status = 'mixed';
+      else if (hasInt) analysis.overall_status = 'intentional';
+      else analysis.overall_status = 'mixed'; // all uncertain
+      const regCount = analysis.changes.filter((c: any) => c.classification === 'regression').length;
+      const intCount = analysis.changes.filter((c: any) => c.classification === 'intentional').length;
+      const parts = [];
+      if (regCount > 0) parts.push(`회귀 ${regCount}건`);
+      if (intCount > 0) parts.push(`의도적 변경 ${intCount}건`);
+      analysis.summary = `${analysis.changes.length}건의 변경 감지 (무시 영역 필터 적용): ${parts.join(', ')}`;
+    }
   }
 
   // Update the visual diff with analysis results
@@ -253,19 +293,29 @@ visualDiffRoutes.post('/:id/bug-report', async (c) => {
   await db.insert(bugReports).values({
     id: bugReportId,
     projectId: diff.projectId,
-    reporterId: diff.createdBy,
+    reporterId: body.created_by || diff.createdBy,
     title: body.title || `시각적 회귀: ${baseline?.name || 'Unknown'}`,
     description: body.description || autoDescription,
     severity: body.severity || 'major',
     status: 'open',
     pageUrl: baseline?.pageUrl || '',
     environment: JSON.stringify({ source: 'visual-regression', viewport: baseline ? JSON.parse(baseline.viewport) : {} }),
+    consoleLogs: JSON.stringify(body.console_logs || []),
+    networkLogs: JSON.stringify(body.network_logs || []),
     screenshotUrls: JSON.stringify([diff.currentScreenshotUrl]),
     visualDiffId: id,
     aiAnalysisStatus: 'completed',
     createdAt: now,
     updatedAt: now,
   });
+
+  // Link regression changes back to the bug report
+  for (const change of regressions) {
+    change.bug_report_id = bugReportId;
+  }
+  await db.update(visualDiffs).set({
+    changes: JSON.stringify(changes),
+  }).where(eq(visualDiffs.id, id));
 
   return c.json({
     data: { id: bugReportId, visual_diff_id: id, created_at: now },

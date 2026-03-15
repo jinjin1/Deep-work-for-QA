@@ -574,7 +574,7 @@ function injectAnnotationOverlay(imageDataUrl: string) {
     cancelBtn.onclick = () => { root.remove(); document.removeEventListener('keydown', onKey, true); chrome.runtime.sendMessage({ type: 'REGION_CAPTURE_CANCELLED' }); };
 
     const submitBtn = document.createElement('button');
-    submitBtn.textContent = 'Create Report';
+    submitBtn.textContent = 'Create & copy link';
     Object.assign(submitBtn.style, {
       padding: '9px 20px', border: 'none', borderRadius: '8px',
       fontSize: '13px', fontWeight: '600', cursor: 'pointer', fontFamily: F,
@@ -626,6 +626,15 @@ function injectAnnotationOverlay(imageDataUrl: string) {
           const subMsg = document.createElement('div');
           subMsg.textContent = response.reportId ? `ID: ${response.reportId}` : 'Successfully submitted';
           Object.assign(subMsg.style, { fontSize: '12px', color: TEXT_MUTED, fontFamily: 'monospace' });
+          // Copy link to clipboard
+          if (response.reportId) {
+            const reportLink = `http://localhost:3000/bug-reports/${response.reportId}`;
+            navigator.clipboard.writeText(reportLink).catch(() => {});
+            const copiedMsg = document.createElement('div');
+            copiedMsg.textContent = 'Link copied to clipboard';
+            Object.assign(copiedMsg.style, { fontSize: '12px', color: '#16a34a', fontWeight: '500' });
+            successDiv.appendChild(copiedMsg);
+          }
           const btnRow = document.createElement('div');
           Object.assign(btnRow.style, { display: 'flex', gap: '8px', marginTop: '8px' });
           if (response.reportId) {
@@ -656,7 +665,7 @@ function injectAnnotationOverlay(imageDataUrl: string) {
           successDiv.appendChild(subMsg); successDiv.appendChild(btnRow);
           formPanel.appendChild(successDiv);
         } else {
-          submitBtn.disabled = false; submitBtn.textContent = 'Create Report';
+          submitBtn.disabled = false; submitBtn.textContent = 'Create & copy link';
           Object.assign(submitBtn.style, { opacity: '1', cursor: 'pointer' });
           statusMsg.textContent = response?.error || 'Submission failed';
           Object.assign(statusMsg.style, { display: 'block', color: '#ef4444', fontWeight: '500' });
@@ -699,10 +708,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           chrome.tabs.sendMessage(tabs[0].id, { type: 'START_CAPTURE' });
         }
       });
-      // Broadcast to SidePanel and other extension pages
-      chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' }).catch(() => {
-        // No listeners — safe to ignore
-      });
       sendResponse({ success: true });
       break;
 
@@ -713,10 +718,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (tabs[0]?.id) {
           chrome.tabs.sendMessage(tabs[0].id, { type: 'STOP_CAPTURE' });
         }
-      });
-      // Broadcast to SidePanel and other extension pages
-      chrome.runtime.sendMessage({ type: 'RECORDING_STOPPED' }).catch(() => {
-        // No listeners — safe to ignore
       });
       sendResponse({ success: true });
       break;
@@ -801,10 +802,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.log('[Deep Work] Screenshot captured');
             const screenshotData = { dataUrl, timestamp: Date.now() };
             chrome.storage.local.set({ screenshotData }, () => {
-              // Broadcast to SidePanel so it can show the screenshot
-              chrome.runtime.sendMessage({ type: 'SCREENSHOT_TAKEN' }).catch(() => {
-                // No listeners — safe to ignore
-              });
               sendResponse({ success: true, dataUrl });
             });
           }
@@ -813,11 +810,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'START_REGION_CAPTURE': {
-      // 1. Prevent side panel from reopening
-      chrome.sidePanel.setOptions({ enabled: false }).catch(() => {});
-      // 2. Tell the side panel to close itself (if it's open)
-      chrome.runtime.sendMessage({ type: 'CLOSE_SIDE_PANEL' }).catch(() => {});
-      // 3. Wait for panel close animation, then inject overlay
+      // Inject overlay
       setTimeout(() => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           if (tabs[0]?.id) {
@@ -826,7 +819,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               func: injectRegionCaptureOverlay,
             }).catch((err) => {
               console.error('[Deep Work] Failed to inject region capture:', err);
-              chrome.sidePanel.setOptions({ enabled: true });
             });
           }
         });
@@ -914,9 +906,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: false, error: json?.error?.message || `API error (${res.status})` });
             return;
           }
-          // Re-enable side panel for future use
-          chrome.sidePanel.setOptions({ enabled: true });
-          // Save screenshot for side panel
+          // Save screenshot
           if (ssDataUrl) {
             chrome.storage.local.set({ screenshotData: { dataUrl: ssDataUrl, timestamp: Date.now() } });
           }
@@ -927,16 +917,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       };
 
-      // Try to get background logs
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (!tabs[0]?.id) {
-          submitReport([], [], {});
-          return;
-        }
-        chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_BACKGROUND_LOGS' }, (response) => {
-          if (chrome.runtime.lastError || !response?.success) {
+      // Try to get background logs — use sender.tab.id if available (from injected script),
+      // otherwise fall back to querying the active tab
+      const getLogsFromTab = (tabId: number) => {
+        chrome.tabs.sendMessage(tabId, { type: 'GET_BACKGROUND_LOGS' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[Deep Work] GET_BACKGROUND_LOGS failed for tab', tabId, ':', chrome.runtime.lastError.message);
+            submitReport([], [], {});
+          } else if (!response?.success) {
+            console.warn('[Deep Work] GET_BACKGROUND_LOGS returned unsuccessful for tab', tabId);
             submitReport([], [], {});
           } else {
+            console.log('[Deep Work] Got background logs from tab', tabId, ':',
+              'console:', response.data?.console_logs?.length || 0,
+              'network:', response.data?.network_logs?.length || 0);
             submitReport(
               response.data?.console_logs || [],
               response.data?.network_logs || [],
@@ -944,7 +938,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             );
           }
         });
-      });
+      };
+
+      if (sender.tab?.id) {
+        getLogsFromTab(sender.tab.id);
+      } else {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (!tabs[0]?.id) {
+            console.warn('[Deep Work] No active tab found for GET_BACKGROUND_LOGS');
+            submitReport([], [], {});
+            return;
+          }
+          getLogsFromTab(tabs[0].id);
+        });
+      }
       return true; // async
     }
 
@@ -1078,7 +1085,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'REGION_CAPTURE_CANCELLED': {
-      chrome.sidePanel.setOptions({ enabled: true });
       sendResponse({ success: true });
       break;
     }
@@ -1094,7 +1100,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Side panel behavior
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
 
 console.log('[Deep Work] Background service worker loaded');

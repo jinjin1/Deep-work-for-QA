@@ -61,29 +61,35 @@ export default function BugReportsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-2xl font-bold tracking-tight">버그 리포트</h2>
-        <div className="flex gap-2">
-          <select
-            className="border border-border rounded px-3 py-1.5 text-sm bg-surface text-text-secondary focus:outline-none focus:border-text-primary transition-colors"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="all">전체 상태</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
-          </select>
-          <select
-            className="border border-border rounded px-3 py-1.5 text-sm bg-surface text-text-secondary focus:outline-none focus:border-text-primary transition-colors"
-            value={filterSeverity}
-            onChange={(e) => setFilterSeverity(e.target.value)}
-          >
-            <option value="all">전체 심각도</option>
-            <option value="critical">Critical</option>
-            <option value="major">Major</option>
-            <option value="minor">Minor</option>
-            <option value="trivial">Trivial</option>
-          </select>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Status</label>
+            <select
+              className="border border-border rounded px-2 py-1 text-xs bg-surface text-text-secondary focus:outline-none focus:border-text-primary transition-colors"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Priority</label>
+            <select
+              className="border border-border rounded px-2 py-1 text-xs bg-surface text-text-secondary focus:outline-none focus:border-text-primary transition-colors"
+              value={filterSeverity}
+              onChange={(e) => setFilterSeverity(e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="critical">Critical</option>
+              <option value="major">Major</option>
+              <option value="minor">Minor</option>
+              <option value="trivial">Trivial</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -112,7 +118,7 @@ export default function BugReportsPage() {
             <thead>
               <tr className="border-b border-border bg-bg">
                 <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">Title</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">Severity</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">Priority</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-24">Status</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted">URL</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-widest text-text-muted w-28">Date</th>
