@@ -180,18 +180,22 @@ function pushNetworkLog(entry: NetworkLogEntry) {
 function startNetworkCapture() {
   if (performanceObserver) return;
 
+  const processEntry = (entry: PerformanceEntry) => {
+    const resourceEntry = entry as PerformanceResourceTiming;
+    pushNetworkLog({
+      timestamp: isCapturing ? getTimestamp() : Date.now(),
+      name: resourceEntry.name,
+      method: 'GET', // PerformanceResourceTiming doesn't expose method
+      initiatorType: resourceEntry.initiatorType,
+      duration: Math.round(resourceEntry.duration),
+      transferSize: resourceEntry.transferSize || 0,
+      responseStatus: (resourceEntry as any).responseStatus || undefined,
+    });
+  };
+
   performanceObserver = new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
-      const resourceEntry = entry as PerformanceResourceTiming;
-      pushNetworkLog({
-        timestamp: isCapturing ? getTimestamp() : Date.now(),
-        name: resourceEntry.name,
-        method: 'GET', // PerformanceResourceTiming doesn't expose method
-        initiatorType: resourceEntry.initiatorType,
-        duration: Math.round(resourceEntry.duration),
-        transferSize: resourceEntry.transferSize || 0,
-        responseStatus: (resourceEntry as any).responseStatus || undefined,
-      });
+      processEntry(entry);
     }
   });
 
@@ -204,6 +208,17 @@ function startNetworkCapture() {
       originalConsoleError.call(console, '[Deep Work] PerformanceObserver setup failed:', err);
     }
   }
+
+  // Also collect any existing performance entries that buffered: true may have missed
+  try {
+    const existingEntries = performance.getEntriesByType('resource');
+    if (existingEntries.length > 0 && backgroundNetworkLogs.length === 0) {
+      for (const entry of existingEntries) {
+        processEntry(entry);
+      }
+      originalConsoleLog.call(console, '[Deep Work] Collected', existingEntries.length, 'existing resource entries');
+    }
+  } catch { /* ignore */ }
 }
 
 function stopNetworkCapture() {
@@ -212,40 +227,74 @@ function stopNetworkCapture() {
 
 // Listen for messages from main-world capture script (mainWorldCapture.ts)
 // Registered in manifest.json with "world": "MAIN" to bypass CSP.
-// It intercepts page's console/fetch/XHR and posts messages here via postMessage.
+// Uses a hidden DOM element + attribute for cross-world communication.
+// Both worlds share the DOM, so getAttribute works reliably across worlds.
 function setupMainWorldListener() {
-  window.addEventListener('message', (e) => {
-    if (e.source !== window || !e.data) return;
+  // Ensure bridge element exists (mainWorldCapture.ts may create it first)
+  const ensureBridge = () => {
+    let bridge = document.getElementById('__deepwork_bridge__');
+    if (!bridge) {
+      bridge = document.createElement('div');
+      bridge.id = '__deepwork_bridge__';
+      bridge.style.display = 'none';
+      (document.documentElement || document.body || document).appendChild(bridge);
+    }
+    return bridge;
+  };
 
-    // Console logs from main world
-    if (e.data.__deepwork_console__) {
-      if (backgroundConsoleLogs.length < 3) {
-        originalConsoleLog.call(console, '[Deep Work] Received main-world console log:', e.data.level, e.data.message?.substring(0, 60));
+  const attachListener = () => {
+    const bridge = ensureBridge();
+    bridge.addEventListener('__deepwork_msg__', () => {
+      let d: any;
+      try {
+        d = JSON.parse(bridge.getAttribute('data-payload') || '{}');
+      } catch {
+        return;
       }
-      const d = e.data;
-      pushConsoleLog({
-        timestamp: d.timestamp || Date.now(),
-        level: d.level || 'log',
-        message: d.message || '',
-        stack: d.stack,
-      });
-      return;
-    }
 
-    // Network logs from main world
-    if (e.data.__deepwork_network__) {
-      const d = e.data;
-      pushNetworkLog({
-        timestamp: Date.now(),
-        name: d.name || '',
-        method: d.method || 'GET',
-        initiatorType: d.initiatorType || 'fetch',
-        duration: d.duration || 0,
-        transferSize: 0,
-        responseStatus: d.responseStatus,
-      });
-    }
-  });
+      // Console logs from main world
+      if (d.type === 'console') {
+        if (backgroundConsoleLogs.length < 3) {
+          originalConsoleLog.call(console, '[Deep Work] Received main-world console log:', d.level, d.message?.substring(0, 60));
+        }
+        pushConsoleLog({
+          timestamp: d.timestamp || Date.now(),
+          level: d.level || 'log',
+          message: d.message || '',
+          stack: d.stack,
+        });
+        return;
+      }
+
+      // Network logs from main world
+      if (d.type === 'network') {
+        pushNetworkLog({
+          timestamp: Date.now(),
+          name: d.name || '',
+          method: d.method || 'GET',
+          initiatorType: d.initiatorType || 'fetch',
+          duration: d.duration || 0,
+          transferSize: 0,
+          responseStatus: d.responseStatus,
+        });
+      }
+    });
+    originalConsoleLog.call(console, '[Deep Work] Bridge listener attached');
+  };
+
+  // At document_start, documentElement may not exist yet
+  if (document.documentElement) {
+    attachListener();
+  } else {
+    // Wait for document to be ready
+    const observer = new MutationObserver(() => {
+      if (document.documentElement) {
+        observer.disconnect();
+        attachListener();
+      }
+    });
+    observer.observe(document, { childList: true });
+  }
 }
 
 // --- Bug Report Capture lifecycle ---
@@ -363,4 +412,9 @@ startConsoleCapture();      // Captures logs from content script isolated world
 startNetworkCapture();      // PerformanceObserver for resource timing
 setupMainWorldListener();   // Receives console + network logs from mainWorldCapture.ts
 
-originalConsoleLog.call(console, '[Deep Work] Content script loaded, buffers:', backgroundConsoleLogs.length, 'console,', backgroundNetworkLogs.length, 'network');
+// Log initialization status after a brief delay to show collected data
+setTimeout(() => {
+  originalConsoleLog.call(console, '[Deep Work] Content script initialized. Buffers:', backgroundConsoleLogs.length, 'console,', backgroundNetworkLogs.length, 'network');
+}, 1000);
+
+originalConsoleLog.call(console, '[Deep Work] Content script loaded');

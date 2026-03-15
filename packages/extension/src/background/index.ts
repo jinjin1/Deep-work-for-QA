@@ -792,7 +792,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'TAKE_SCREENSHOT':
       chrome.tabs.captureVisibleTab(
-        undefined as unknown as number,
         { format: 'png' },
         (dataUrl) => {
           if (chrome.runtime.lastError) {
@@ -810,27 +809,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'START_REGION_CAPTURE': {
-      // Inject overlay
-      setTimeout(() => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            chrome.scripting.executeScript({
-              target: { tabId: tabs[0].id },
+      // Inject overlay - use tabs from sender or query active tab
+      const injectCapture = async () => {
+        try {
+          const tabId = sender.tab?.id;
+          if (tabId) {
+            await chrome.scripting.executeScript({
+              target: { tabId },
               func: injectRegionCaptureOverlay,
-            }).catch((err) => {
-              console.error('[Deep Work] Failed to inject region capture:', err);
             });
+          } else {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tabs[0]?.id) {
+              await chrome.scripting.executeScript({
+                target: { tabId: tabs[0].id },
+                func: injectRegionCaptureOverlay,
+              });
+            }
           }
-        });
-      }, 300);
-      sendResponse({ success: true });
-      break;
+          sendResponse({ success: true });
+        } catch (err) {
+          console.error('[Deep Work] Failed to inject region capture:', err);
+          sendResponse({ success: false, error: String(err) });
+        }
+      };
+      injectCapture();
+      return true;
     }
 
     case 'REGION_SELECTED': {
       const { rect, devicePixelRatio: dpr } = message.data;
       chrome.tabs.captureVisibleTab(
-        undefined as unknown as number,
         { format: 'png' },
         async (fullDataUrl) => {
           if (chrome.runtime.lastError) {
@@ -919,14 +928,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       // Try to get background logs — use sender.tab.id if available (from injected script),
       // otherwise fall back to querying the active tab
-      const getLogsFromTab = (tabId: number) => {
+      const getLogsFromTab = (tabId: number, retryCount = 0) => {
         chrome.tabs.sendMessage(tabId, { type: 'GET_BACKGROUND_LOGS' }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[Deep Work] GET_BACKGROUND_LOGS failed for tab', tabId, ':', chrome.runtime.lastError.message);
-            submitReport([], [], {});
-          } else if (!response?.success) {
-            console.warn('[Deep Work] GET_BACKGROUND_LOGS returned unsuccessful for tab', tabId);
-            submitReport([], [], {});
+          if (chrome.runtime.lastError || !response?.success) {
+            const errMsg = chrome.runtime.lastError?.message || 'unsuccessful response';
+            console.warn('[Deep Work] GET_BACKGROUND_LOGS failed for tab', tabId, ':', errMsg, '(attempt', retryCount + 1, ')');
+
+            // If content script is not connected, inject it and retry
+            if (retryCount < 2) {
+              console.log('[Deep Work] Injecting content scripts into tab', tabId, 'and retrying...');
+              Promise.all([
+                chrome.scripting.executeScript({
+                  target: { tabId },
+                  files: ['src/content/mainWorldCapture.ts'],
+                  world: 'MAIN' as any,
+                }).catch(() => {}),
+                chrome.scripting.executeScript({
+                  target: { tabId },
+                  files: ['src/content/index.ts'],
+                }).catch(() => {}),
+              ]).then(() => {
+                // Wait for scripts to initialize and collect some data
+                setTimeout(() => getLogsFromTab(tabId, retryCount + 1), 500);
+              });
+            } else {
+              console.warn('[Deep Work] All retries exhausted, submitting without logs');
+              submitReport([], [], {});
+            }
           } else {
             console.log('[Deep Work] Got background logs from tab', tabId, ':',
               'console:', response.data?.console_logs?.length || 0,
