@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Deep Work - AI Native QA Platform',
+  title: 'Deep Work for QA',
   description: 'Bug reporting and visual regression testing powered by AI',
 };
 
