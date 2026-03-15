@@ -60,7 +60,7 @@ export default function BugReportsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
-        <h2 className="text-2xl font-bold tracking-tight">버그 리포트</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Bug Reports</h2>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
             <label className="text-[10px] font-medium text-text-muted uppercase tracking-wider">Status</label>
@@ -95,22 +95,22 @@ export default function BugReportsPage() {
 
       {error && (
         <div className="mb-6 px-4 py-3 border-l-2 border-accent bg-accent-light text-sm text-text-primary">
-          API 연결 오류: {error}
+          API connection error: {error}
         </div>
       )}
 
       <div className="border border-border rounded overflow-hidden">
         {loading ? (
-          <div className="py-12 text-center text-text-muted text-sm">로딩 중...</div>
+          <div className="py-12 text-center text-text-muted text-sm">Loading...</div>
         ) : filteredReports.length === 0 ? (
           <div className="py-12 text-center">
             <p className="text-text-secondary text-sm mb-1">
               {bugReports.length === 0
-                ? '아직 버그 리포트가 없습니다'
-                : '필터 조건에 맞는 버그 리포트가 없습니다'}
+                ? 'No bug reports yet'
+                : 'No bug reports match the current filters'}
             </p>
             {bugReports.length === 0 && (
-              <p className="text-text-muted text-xs">Chrome 확장을 설치하고 첫 번째 버그를 리포트해보세요</p>
+              <p className="text-text-muted text-xs">Install the Chrome extension and report your first bug</p>
             )}
           </div>
         ) : (
@@ -155,9 +155,7 @@ export default function BugReportsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-text-muted tabular-nums">
-                    {new Date(bug.createdAt).toLocaleDateString('ko-KR', {
-                      year: 'numeric', month: '2-digit', day: '2-digit',
-                    })}
+                    {new Date(bug.createdAt).toLocaleDateString()}
                   </td>
                 </tr>
               ))}

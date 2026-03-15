@@ -24,11 +24,11 @@ export function seedDefaults(db: BetterSQLite3Database<any>) {
 
   console.log('[seed] Default organization, project, and user ensured.');
 
-  // Seed demo sessions for local testing
-  seedDemoSessions(db);
-
-  // Seed demo baselines and visual diffs for visual regression testing
-  seedDemoBaselines(db);
+  // Only seed demo data if SEED_DEMO_DATA=true (for development/testing)
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    seedDemoSessions(db);
+    seedDemoBaselines(db);
+  }
 }
 
 function seedDemoBaselines(db: BetterSQLite3Database<any>) {

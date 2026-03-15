@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    ports:
+      - "${PORT:-3001}:3001"
+    volumes:
+      - deep-work-data:/app/data
+    environment:
+      - PORT=3001
+      - DB_PATH=/app/data/deep-work.db
+      - UPLOADS_DIR=/app/data/uploads
+      - SEED_DEMO_DATA=${SEED_DEMO_DATA:-false}
+      - DEEP_WORK_API_KEY=${DEEP_WORK_API_KEY:-}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001/v1}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  deep-work-data:

@@ -6,9 +6,9 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema';
 import { seedDefaults } from './seed';
 
-// Resolve DB path relative to packages/api/ (not CWD)
+// Use DB_PATH env var if set, otherwise resolve relative to packages/api/
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, '../../dev.db');
+const dbPath = process.env.DB_PATH || path.resolve(__dirname, '../../dev.db');
 const migrationsFolder = path.resolve(__dirname, '../../drizzle');
 
 const sqlite = new Database(dbPath);
