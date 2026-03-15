@@ -6,6 +6,11 @@ import { v4 as uuid } from 'uuid';
 
 export const ignoreRegionRoutes = new Hono();
 
+function safeJsonParse(value: string | null | undefined, fallback: unknown = null) {
+  if (!value) return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 // GET /v1/baselines/:baselineId/ignore-regions - List ignore regions for a baseline
 ignoreRegionRoutes.get('/:baselineId/ignore-regions', async (c) => {
   const baselineId = c.req.param('baselineId');
@@ -22,7 +27,7 @@ ignoreRegionRoutes.get('/:baselineId/ignore-regions', async (c) => {
     data: result.map((r) => ({
       id: r.id,
       baseline_id: r.baselineId,
-      region: JSON.parse(r.region),
+      region: safeJsonParse(r.region, {}),
       reason: r.reason,
       created_at: r.createdAt,
     })),

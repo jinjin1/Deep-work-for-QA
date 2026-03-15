@@ -3,10 +3,36 @@ import { db } from '../db/index.js';
 import { bugReports } from '../db/schema.js';
 import { eq, desc, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import { z } from 'zod';
 import { generateMockReproSteps } from './ai.js';
-import { processScreenshotUrls } from './uploads.js';
+import { processScreenshotUrls, deleteUploadedFile } from './uploads.js';
 
 export const bugReportRoutes = new Hono();
+
+// --- Zod schemas for input validation ---
+
+const createBugReportSchema = z.object({
+  project_id: z.string().max(100).optional(),
+  reporter_id: z.string().max(100).optional(),
+  title: z.string().min(1).max(500).default('Untitled Bug Report'),
+  description: z.string().max(10_000).nullable().optional(),
+  severity: z.enum(['critical', 'major', 'minor', 'trivial']).default('major'),
+  page_url: z.string().max(2000).default(''),
+  environment: z.record(z.unknown()).default({}),
+  console_logs: z.array(z.unknown()).max(500).default([]),
+  network_logs: z.array(z.unknown()).max(500).default([]),
+  events: z.array(z.unknown()).max(1000).default([]),
+  screenshot_urls: z.array(z.string().max(5_000_000)).max(10).default([]),
+  recording_url: z.string().max(2000).nullable().optional(),
+  session_id: z.string().max(100).nullable().optional(),
+});
+
+const updateBugReportSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(10_000).nullable().optional(),
+  severity: z.enum(['critical', 'major', 'minor', 'trivial']).optional(),
+  status: z.enum(['open', 'in_progress', 'resolved', 'closed']).optional(),
+});
 
 /** Parse a JSON column value safely, returning fallback on failure. */
 function safeJsonParse(value: string | null | undefined, fallback: unknown = null) {
@@ -75,7 +101,19 @@ bugReportRoutes.get('/:id', async (c) => {
 
 // Create bug report
 bugReportRoutes.post('/', async (c) => {
-  const body = await c.req.json();
+  const rawBody = await c.req.json();
+  const parsed = createBugReportSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid request body',
+        details: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      },
+    }, 400);
+  }
+  const body = parsed.data;
+
   const id = uuid();
   const now = new Date().toISOString();
 
@@ -83,18 +121,18 @@ bugReportRoutes.post('/', async (c) => {
     id,
     projectId: body.project_id || 'proj-default',
     reporterId: body.reporter_id || 'user-default',
-    title: body.title || 'Untitled Bug Report',
+    title: body.title,
     description: body.description || null,
-    severity: body.severity || 'major',
+    severity: body.severity,
     status: 'open' as const,
-    pageUrl: body.page_url || '',
-    environment: JSON.stringify(body.environment || {}),
-    consoleLogs: JSON.stringify(body.console_logs || []),
-    networkLogs: JSON.stringify(body.network_logs || []),
+    pageUrl: body.page_url,
+    environment: JSON.stringify(body.environment),
+    consoleLogs: JSON.stringify(body.console_logs),
+    networkLogs: JSON.stringify(body.network_logs),
     reproSteps: null,
     aiSummary: null,
     recordingUrl: body.recording_url || null,
-    screenshotUrls: JSON.stringify(processScreenshotUrls(body.screenshot_urls || [])),
+    screenshotUrls: JSON.stringify(processScreenshotUrls(body.screenshot_urls)),
     sessionId: body.session_id || null,
     linearIssueId: null,
     linearIssueUrl: null,
@@ -106,7 +144,7 @@ bugReportRoutes.post('/', async (c) => {
   await db.insert(bugReports).values(report);
 
   // Fire-and-forget: trigger mock AI analysis asynchronously
-  triggerAiAnalysis(id, body.events || [], body.console_logs || []).catch((err) => {
+  triggerAiAnalysis(id, body.events, body.console_logs).catch((err) => {
     console.error(`[ai] Failed to run AI analysis for bug report ${id}:`, err);
   });
 
@@ -123,7 +161,18 @@ bugReportRoutes.post('/', async (c) => {
 // Update bug report
 bugReportRoutes.put('/:id', async (c) => {
   const id = c.req.param('id');
-  const body = await c.req.json();
+  const rawBody = await c.req.json();
+  const parsed = updateBugReportSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid request body',
+        details: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      },
+    }, 400);
+  }
+  const body = parsed.data;
   const now = new Date().toISOString();
 
   await db.update(bugReports).set({
@@ -140,9 +189,22 @@ bugReportRoutes.put('/:id', async (c) => {
   });
 });
 
-// Delete bug report
+// Delete bug report — also cleans up uploaded files
 bugReportRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id');
+
+  // Fetch report to get screenshot URLs before deleting
+  const [report] = await db.select().from(bugReports).where(eq(bugReports.id, id));
+  if (report) {
+    const screenshotUrls = safeJsonParse(report.screenshotUrls, []) as string[];
+    for (const url of screenshotUrls) {
+      if (url.startsWith('/uploads/')) {
+        const filename = url.replace('/uploads/', '');
+        deleteUploadedFile(filename);
+      }
+    }
+  }
+
   await db.delete(bugReports).where(eq(bugReports.id, id));
   return c.json({ data: { deleted: true }, meta: { request_id: uuid(), timestamp: new Date().toISOString() } });
 });

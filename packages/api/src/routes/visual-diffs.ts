@@ -8,6 +8,11 @@ import { generateMockVisualAnalysis, runVisualComparison, type BoundingBox } fro
 
 export const visualDiffRoutes = new Hono();
 
+function safeJsonParse(value: string | null | undefined, fallback: unknown = null) {
+  if (!value) return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 // GET /v1/visual-diffs - List visual diffs with optional filters
 visualDiffRoutes.get('/', async (c) => {
   const baselineId = c.req.query('baseline_id');
@@ -37,7 +42,7 @@ visualDiffRoutes.get('/', async (c) => {
   return c.json({
     data: result.map((d) => ({
       ...d,
-      changes: JSON.parse(d.changes),
+      changes: safeJsonParse(d.changes, []),
       project_id: d.projectId,
       baseline_id: d.baselineId,
       current_screenshot_url: d.currentScreenshotUrl,
@@ -79,7 +84,7 @@ visualDiffRoutes.get('/:id', async (c) => {
             id: baseline.id,
             name: baseline.name,
             page_url: baseline.pageUrl,
-            viewport: JSON.parse(baseline.viewport),
+            viewport: safeJsonParse(baseline.viewport, { width: 1440, height: 900 }),
             screenshot_url: baseline.screenshotUrl,
           }
         : null,
@@ -153,7 +158,7 @@ visualDiffRoutes.post('/:id/analyze', async (c) => {
 
   // Get ignore regions for this baseline
   const ignoreRegionRows = await db.select().from(ignoreRegions).where(eq(ignoreRegions.baselineId, diff.baselineId));
-  const ignoreRects = ignoreRegionRows.map((r) => JSON.parse(r.region));
+  const ignoreRects = ignoreRegionRows.map((r) => safeJsonParse(r.region, {}));
 
   let analysis;
 
@@ -284,7 +289,7 @@ visualDiffRoutes.post('/:id/bug-report', async (c) => {
   const now = new Date().toISOString();
 
   // Parse changes to build description
-  const changes = JSON.parse(diff.changes) as any[];
+  const changes = safeJsonParse(diff.changes, []) as any[];
   const regressions = changes.filter((c: any) => c.classification === 'regression');
   const autoDescription = regressions.length > 0
     ? regressions.map((r: any) => `- ${r.description}`).join('\n')
@@ -299,7 +304,7 @@ visualDiffRoutes.post('/:id/bug-report', async (c) => {
     severity: body.severity || 'major',
     status: 'open',
     pageUrl: baseline?.pageUrl || '',
-    environment: JSON.stringify({ source: 'visual-regression', viewport: baseline ? JSON.parse(baseline.viewport) : {} }),
+    environment: JSON.stringify({ source: 'visual-regression', viewport: baseline ? safeJsonParse(baseline.viewport, {}) : {} }),
     consoleLogs: JSON.stringify(body.console_logs || []),
     networkLogs: JSON.stringify(body.network_logs || []),
     screenshotUrls: JSON.stringify([diff.currentScreenshotUrl]),
@@ -338,7 +343,7 @@ visualDiffRoutes.put('/:id/changes/:changeId', async (c) => {
     return c.json({ error: { code: 'VALIDATION_ERROR', message: 'classification must be intentional, regression, or uncertain' } }, 400);
   }
 
-  const changes = JSON.parse(diff.changes) as any[];
+  const changes = safeJsonParse(diff.changes, []) as any[];
   const changeIndex = changes.findIndex((c: any) => c.id === changeId);
   if (changeIndex === -1) {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Change not found' } }, 404);

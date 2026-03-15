@@ -7,6 +7,11 @@ import { generateMockVisualAnalysis, type BoundingBox } from '../lib/visual-comp
 
 export const comparisonRunRoutes = new Hono();
 
+function safeJsonParse(value: string | null | undefined, fallback: unknown = null) {
+  if (!value) return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 // POST /v1/comparison-runs - Start a batch comparison run
 comparisonRunRoutes.post('/', async (c) => {
   const body = await c.req.json();
@@ -144,7 +149,7 @@ comparisonRunRoutes.get('/', async (c) => {
       intentional_count: Number(r.intentionalCount),
       regression_count: Number(r.regressionCount),
       uncertain_count: Number(r.uncertainCount),
-      visual_diff_ids: JSON.parse(r.visualDiffIds),
+      visual_diff_ids: safeJsonParse(r.visualDiffIds, []),
       created_by: r.createdBy,
       created_at: r.createdAt,
       completed_at: r.completedAt,

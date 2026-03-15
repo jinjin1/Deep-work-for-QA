@@ -6,12 +6,17 @@ import { v4 as uuid } from 'uuid';
 
 export const baselineRoutes = new Hono();
 
+function safeJsonParse(value: string | null | undefined, fallback: unknown = null) {
+  if (!value) return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 // Helper to format baseline for response
 function formatBaseline(b: typeof baselines.$inferSelect) {
   return {
     ...b,
     project_id: b.projectId,
-    viewport: JSON.parse(b.viewport),
+    viewport: safeJsonParse(b.viewport, { width: 1440, height: 900 }),
     page_url: b.pageUrl,
     screenshot_url: b.screenshotUrl,
     created_by: b.createdBy,

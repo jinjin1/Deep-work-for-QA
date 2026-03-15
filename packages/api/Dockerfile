@@ -16,13 +16,17 @@ RUN pnpm --filter @deep-work/api build
 
 FROM node:20-alpine
 
-WORKDIR /app
-RUN mkdir -p /app/data/uploads
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-COPY --from=builder /app/packages/api/dist ./dist
-COPY --from=builder /app/packages/api/drizzle ./drizzle
-COPY --from=builder /app/packages/api/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
+WORKDIR /app
+RUN mkdir -p /app/data/uploads && chown -R appuser:appgroup /app/data
+
+COPY --from=builder --chown=appuser:appgroup /app/packages/api/dist ./dist
+COPY --from=builder --chown=appuser:appgroup /app/packages/api/drizzle ./drizzle
+COPY --from=builder --chown=appuser:appgroup /app/packages/api/package.json ./
+COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
+
+USER appuser
 
 EXPOSE 3001
 
