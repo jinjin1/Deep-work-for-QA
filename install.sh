@@ -72,7 +72,7 @@ mkdir -p "$DATA_DIR/uploads"
 
 # ─── 3. Build ───
 echo "[5/5] Installing dependencies and building..."
-pnpm install --frozen-lockfile
+pnpm install
 pnpm build
 
 # ─── 4. Configure ───
