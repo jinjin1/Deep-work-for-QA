@@ -4,7 +4,7 @@ set -e
 # ─── Deep Work Installer ───────────────────────────────────
 # One-line install: curl -fsSL <url>/install.sh | bash
 
-INSTALL_DIR="${DEEP_WORK_DIR:-$HOME/deep-work}"
+INSTALL_DIR="${DEEP_WORK_DIR:-$HOME/deep-work-for-qa}"
 DATA_DIR="$INSTALL_DIR/data"
 REPO_URL="https://github.com/jinjin1/Deep-work-for-QA.git"
 
@@ -104,13 +104,11 @@ pm2 delete deep-work-web 2>/dev/null || true
 
 pm2 start "node packages/api/dist/index.js" \
   --name deep-work-api \
-  --cwd "$INSTALL_DIR" \
-  --env-file "$INSTALL_DIR/.env"
+  --cwd "$INSTALL_DIR"
 
 pm2 start "npx next start packages/web -p 3000" \
   --name deep-work-web \
-  --cwd "$INSTALL_DIR" \
-  --env-file "$INSTALL_DIR/.env"
+  --cwd "$INSTALL_DIR"
 
 pm2 save
 
