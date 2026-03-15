@@ -226,75 +226,93 @@ function stopNetworkCapture() {
 }
 
 // Listen for messages from main-world capture script (mainWorldCapture.ts)
-// Registered in manifest.json with "world": "MAIN" to bypass CSP.
-// Uses a hidden DOM element + attribute for cross-world communication.
-// Both worlds share the DOM, so getAttribute works reliably across worlds.
+// Uses DOM attribute mutation for cross-world communication.
+// MAIN world writes JSON to data-msg attribute on a hidden bridge element.
+// ISOLATED world detects changes via MutationObserver (DOM is shared between worlds).
+
 function setupMainWorldListener() {
-  // Ensure bridge element exists (mainWorldCapture.ts may create it first)
-  const ensureBridge = () => {
-    let bridge = document.getElementById('__deepwork_bridge__');
-    if (!bridge) {
-      bridge = document.createElement('div');
-      bridge.id = '__deepwork_bridge__';
-      bridge.style.display = 'none';
-      (document.documentElement || document.body || document).appendChild(bridge);
+  // Create or find bridge element
+  let bridge = document.getElementById('__deepwork_bridge__');
+  if (!bridge) {
+    const parent = document.documentElement || document.body;
+    if (!parent) {
+      originalConsoleError.call(console, '[Deep Work] Cannot create bridge: no parent element');
+      return;
     }
-    return bridge;
-  };
-
-  const attachListener = () => {
-    const bridge = ensureBridge();
-    bridge.addEventListener('__deepwork_msg__', () => {
-      let d: any;
-      try {
-        d = JSON.parse(bridge.getAttribute('data-payload') || '{}');
-      } catch {
-        return;
-      }
-
-      // Console logs from main world
-      if (d.type === 'console') {
-        if (backgroundConsoleLogs.length < 3) {
-          originalConsoleLog.call(console, '[Deep Work] Received main-world console log:', d.level, d.message?.substring(0, 60));
-        }
-        pushConsoleLog({
-          timestamp: d.timestamp || Date.now(),
-          level: d.level || 'log',
-          message: d.message || '',
-          stack: d.stack,
-        });
-        return;
-      }
-
-      // Network logs from main world
-      if (d.type === 'network') {
-        pushNetworkLog({
-          timestamp: Date.now(),
-          name: d.name || '',
-          method: d.method || 'GET',
-          initiatorType: d.initiatorType || 'fetch',
-          duration: d.duration || 0,
-          transferSize: 0,
-          responseStatus: d.responseStatus,
-        });
-      }
-    });
-    originalConsoleLog.call(console, '[Deep Work] Bridge listener attached');
-  };
-
-  // At document_start, documentElement may not exist yet
-  if (document.documentElement) {
-    attachListener();
-  } else {
-    // Wait for document to be ready
-    const observer = new MutationObserver(() => {
-      if (document.documentElement) {
-        observer.disconnect();
-        attachListener();
-      }
-    });
-    observer.observe(document, { childList: true });
+    bridge = document.createElement('div');
+    bridge.id = '__deepwork_bridge__';
+    bridge.style.display = 'none';
+    parent.appendChild(bridge);
   }
+
+  // Set up MutationObserver to watch for data-msg attribute changes
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'data-msg') {
+        const el = mutation.target as HTMLElement;
+        const raw = el.getAttribute('data-msg');
+        if (!raw) continue;
+
+        let d: any;
+        try {
+          d = JSON.parse(raw);
+        } catch {
+          continue;
+        }
+
+        // Console logs from main world
+        if (d.type === 'console') {
+          if (backgroundConsoleLogs.length < 3) {
+            originalConsoleLog.call(console, '[Deep Work] Received main-world console:', d.level, (d.message || '').substring(0, 60));
+          }
+          pushConsoleLog({
+            timestamp: d.timestamp || Date.now(),
+            level: d.level || 'log',
+            message: d.message || '',
+            stack: d.stack,
+          });
+        }
+
+        // Network logs from main world
+        if (d.type === 'network') {
+          pushNetworkLog({
+            timestamp: Date.now(),
+            name: d.name || '',
+            method: d.method || 'GET',
+            initiatorType: d.initiatorType || 'fetch',
+            duration: d.duration || 0,
+            transferSize: 0,
+            responseStatus: d.responseStatus,
+          });
+        }
+      }
+    }
+  });
+
+  observer.observe(bridge, { attributes: true, attributeFilter: ['data-msg'] });
+
+  // Signal to MAIN world that the bridge is ready and listener is attached
+  bridge.setAttribute('data-ready', '1');
+
+  originalConsoleLog.call(console, '[Deep Work] MutationObserver bridge listener attached');
+
+  // Periodically check if bridge was removed by SPA hydration
+  setInterval(() => {
+    const existing = document.getElementById('__deepwork_bridge__');
+    if (!existing) {
+      // Re-create bridge
+      const parent = document.documentElement || document.body;
+      if (parent) {
+        const newBridge = document.createElement('div');
+        newBridge.id = '__deepwork_bridge__';
+        newBridge.style.display = 'none';
+        parent.appendChild(newBridge);
+        observer.observe(newBridge, { attributes: true, attributeFilter: ['data-msg'] });
+        newBridge.setAttribute('data-ready', '1');
+        originalConsoleLog.call(console, '[Deep Work] Bridge re-created after SPA removal');
+      }
+    }
+  }, 5000);
 }
 
 // --- Bug Report Capture lifecycle ---
@@ -407,14 +425,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-// Start always-on background log collection immediately
-startConsoleCapture();      // Captures logs from content script isolated world
-startNetworkCapture();      // PerformanceObserver for resource timing
-setupMainWorldListener();   // Receives console + network logs from mainWorldCapture.ts
+// Guard against double-injection (e.g. extension reload re-injects into existing tabs)
+if (!(window as any).__deepwork_content_script_active__) {
+  (window as any).__deepwork_content_script_active__ = true;
 
-// Log initialization status after a brief delay to show collected data
-setTimeout(() => {
-  originalConsoleLog.call(console, '[Deep Work] Content script initialized. Buffers:', backgroundConsoleLogs.length, 'console,', backgroundNetworkLogs.length, 'network');
-}, 1000);
+  // Start always-on background log collection immediately
+  startConsoleCapture();      // Captures logs from content script isolated world
+  startNetworkCapture();      // PerformanceObserver for resource timing
+  setupMainWorldListener();   // Receives console + network logs from mainWorldCapture.ts
 
-originalConsoleLog.call(console, '[Deep Work] Content script loaded');
+  // Log initialization status after a brief delay to show collected data
+  setTimeout(() => {
+    originalConsoleLog.call(console, '[Deep Work] Content script initialized. Buffers:', backgroundConsoleLogs.length, 'console,', backgroundNetworkLogs.length, 'network');
+  }, 1000);
+
+  originalConsoleLog.call(console, '[Deep Work] Content script loaded');
+}

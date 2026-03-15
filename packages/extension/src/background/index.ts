@@ -6,6 +6,26 @@ let API_BASE = 'http://localhost:3001/v1';
 let WEB_BASE = 'http://localhost:3000';
 let API_KEY = '';
 
+// Re-inject content scripts into existing tabs on extension install/update/reload
+chrome.runtime.onInstalled.addListener(async () => {
+  const manifest = chrome.runtime.getManifest();
+  const contentScripts = manifest.content_scripts || [];
+  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    for (const cs of contentScripts) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: cs.js || [],
+          ...((cs as any).world === 'MAIN' ? { world: 'MAIN' as any } : {}),
+        });
+      } catch { /* tab may not allow script injection */ }
+    }
+  }
+  console.log('[Deep Work] Content scripts re-injected into', tabs.length, 'tabs');
+});
+
 // Load saved settings on startup
 chrome.storage.sync.get(['apiUrl', 'webUrl', 'apiKey'], (result) => {
   if (result.apiUrl) API_BASE = result.apiUrl;
@@ -971,17 +991,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // If content script is not connected, inject it and retry
             if (retryCount < 2) {
               console.log('[Deep Work] Injecting content scripts into tab', tabId, 'and retrying...');
-              Promise.all([
+              const manifest = chrome.runtime.getManifest();
+              const contentScripts = manifest.content_scripts || [];
+              const injectAll = contentScripts.map(cs =>
                 chrome.scripting.executeScript({
                   target: { tabId },
-                  files: ['src/content/mainWorldCapture.ts'],
-                  world: 'MAIN' as any,
-                }).catch(() => {}),
-                chrome.scripting.executeScript({
-                  target: { tabId },
-                  files: ['src/content/index.ts'],
-                }).catch(() => {}),
-              ]).then(() => {
+                  files: cs.js || [],
+                  ...((cs as any).world === 'MAIN' ? { world: 'MAIN' as any } : {}),
+                }).catch(() => {})
+              );
+              Promise.all(injectAll).then(() => {
                 // Wait for scripts to initialize and collect some data
                 setTimeout(() => getLogsFromTab(tabId, retryCount + 1), 500);
               });
