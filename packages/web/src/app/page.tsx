@@ -71,37 +71,37 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold tracking-tight mb-8">대시보드</h2>
+      <h2 className="text-2xl font-bold tracking-tight mb-8">Dashboard</h2>
 
       {error && (
         <div className="mb-6 px-4 py-3 border-l-2 border-accent bg-accent-light text-sm text-text-primary">
-          API 연결 오류: {error}
+          API connection error: {error}
         </div>
       )}
 
       <div className="grid grid-cols-3 gap-6 mb-10">
-        <StatCard title="전체" count={bugReports.length} loading={loading} />
-        <StatCard title="미해결" count={openCount} loading={loading} highlight={criticalCount > 0} />
-        <StatCard title="해결됨" count={resolvedCount} loading={loading} />
+        <StatCard title="Total" count={bugReports.length} loading={loading} />
+        <StatCard title="Open" count={openCount} loading={loading} highlight={criticalCount > 0} />
+        <StatCard title="Resolved" count={resolvedCount} loading={loading} />
       </div>
 
       {criticalCount > 0 && (
         <div className="mb-6 px-4 py-3 border-l-2 border-accent bg-accent-light text-sm text-text-primary">
-          Critical 버그 {criticalCount}건이 미해결 상태입니다
+          {criticalCount} critical bug(s) remain unresolved
         </div>
       )}
 
       <section>
         <h3 className="text-xs font-medium uppercase tracking-widest text-text-muted mb-4">
-          최근 버그 리포트
+          Recent Bug Reports
         </h3>
         <div className="border border-border rounded overflow-hidden">
           {loading ? (
-            <div className="py-12 text-center text-text-muted text-sm">로딩 중...</div>
+            <div className="py-12 text-center text-text-muted text-sm">Loading...</div>
           ) : bugReports.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-text-secondary text-sm mb-1">아직 버그 리포트가 없습니다</p>
-              <p className="text-text-muted text-xs">Chrome 확장에서 스크린샷을 캡처해보세요</p>
+              <p className="text-text-secondary text-sm mb-1">No bug reports yet</p>
+              <p className="text-text-muted text-xs">Capture a screenshot from the Chrome extension to get started</p>
             </div>
           ) : (
             <table className="w-full text-sm">
@@ -139,7 +139,7 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-text-muted tabular-nums">
-                      {new Date(bug.createdAt).toLocaleDateString('ko-KR')}
+                      {new Date(bug.createdAt).toLocaleDateString()}
                     </td>
                   </tr>
                 ))}
@@ -150,7 +150,7 @@ export default function Dashboard() {
         {bugReports.length > 10 && (
           <div className="mt-3 text-right">
             <a href="/bug-reports" className="text-xs text-text-secondary hover:text-text-primary underline underline-offset-2">
-              전체 {bugReports.length}건 보기
+              View all {bugReports.length} reports
             </a>
           </div>
         )}

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko">
+    <html lang="en">
       <body className="bg-bg text-text-primary antialiased">
         <div className="flex min-h-screen">
           <Sidebar />
@@ -27,11 +27,11 @@ function Sidebar() {
         <p className="text-[11px] text-text-muted tracking-wide uppercase mt-0.5">for QA</p>
       </div>
       <nav className="flex flex-col gap-0.5 flex-1 text-sm">
-        <NavItem href="/" label="대시보드" />
-        <NavItem href="/bug-reports" label="버그 리포트" />
+        <NavItem href="/" label="Dashboard" />
+        <NavItem href="/bug-reports" label="Bug Reports" />
       </nav>
       <div className="pt-4 border-t border-border">
-        <NavItem href="/settings" label="설정" />
+        <NavItem href="/settings" label="Settings" />
       </div>
     </aside>
   );

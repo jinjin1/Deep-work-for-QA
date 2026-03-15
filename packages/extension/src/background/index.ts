@@ -1,7 +1,35 @@
 // Deep Work Background Service Worker
 export {};
 
-const API_BASE = 'http://localhost:3001/v1';
+// Server URLs — loaded from chrome.storage.sync, with localhost defaults
+let API_BASE = 'http://localhost:3001/v1';
+let WEB_BASE = 'http://localhost:3000';
+let API_KEY = '';
+
+// Load saved settings on startup
+chrome.storage.sync.get(['apiUrl', 'webUrl', 'apiKey'], (result) => {
+  if (result.apiUrl) API_BASE = result.apiUrl;
+  if (result.webUrl) WEB_BASE = result.webUrl;
+  if (result.apiKey) API_KEY = result.apiKey;
+  console.log('[Deep Work] Server URLs:', { API_BASE, WEB_BASE });
+});
+
+// Listen for settings changes
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync') {
+    if (changes.apiUrl?.newValue) API_BASE = changes.apiUrl.newValue;
+    if (changes.webUrl?.newValue) WEB_BASE = changes.webUrl.newValue;
+    if (changes.apiKey) API_KEY = changes.apiKey.newValue || '';
+    console.log('[Deep Work] Server URLs updated:', { API_BASE, WEB_BASE });
+  }
+});
+
+/** Build request headers, including API key if configured */
+function apiHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  if (API_KEY) headers['X-API-Key'] = API_KEY;
+  return headers;
+}
 
 /** Crop a full-page screenshot to a specific region using OffscreenCanvas */
 async function cropScreenshot(
@@ -628,7 +656,7 @@ function injectAnnotationOverlay(imageDataUrl: string) {
           Object.assign(subMsg.style, { fontSize: '12px', color: TEXT_MUTED, fontFamily: 'monospace' });
           // Copy link to clipboard
           if (response.reportId) {
-            const reportLink = `http://localhost:3000/bug-reports/${response.reportId}`;
+            const reportLink = `${WEB_BASE}/bug-reports/${response.reportId}`;
             navigator.clipboard.writeText(reportLink).catch(() => {});
             const copiedMsg = document.createElement('div');
             copiedMsg.textContent = 'Link copied to clipboard';
@@ -648,7 +676,7 @@ function injectAnnotationOverlay(imageDataUrl: string) {
             viewBtn.onmouseenter = () => { viewBtn.style.background = '#4f46e5'; };
             viewBtn.onmouseleave = () => { viewBtn.style.background = ACCENT; };
             viewBtn.onclick = () => {
-              window.open(`http://localhost:3000/bug-reports/${response.reportId}`, '_blank');
+              window.open(`${WEB_BASE}/bug-reports/${response.reportId}`, '_blank');
               root.remove(); document.removeEventListener('keydown', onKey, true);
             };
             btnRow.appendChild(viewBtn);
@@ -897,7 +925,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         try {
           const res = await fetch(`${API_BASE}/bug-reports`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               title,
               description,
@@ -1017,7 +1045,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // POST to API
           const res = await fetch(`${API_BASE}/baselines`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               name: baselineName,
               page_url: url,
@@ -1073,7 +1101,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Create visual diff
           const diffRes = await fetch(`${API_BASE}/visual-diffs`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               baseline_id: baselineId,
               current_screenshot_url: dataUrl,
@@ -1089,7 +1117,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Trigger analysis
           const analyzeRes = await fetch(`${API_BASE}/visual-diffs/${diffId}/analyze`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json' }),
           });
           if (!analyzeRes.ok) throw new Error('Analysis failed');
           const analyzeJson = await analyzeRes.json();
