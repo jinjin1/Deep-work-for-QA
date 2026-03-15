@@ -638,6 +638,8 @@ function injectAnnotationOverlay(imageDataUrl: string) {
       }, (response: { success: boolean; error?: string; reportId?: string }) => {
         if (response?.success) {
           formPanel.innerHTML = '';
+          formPanel.style.justifyContent = 'center';
+          formPanel.style.minHeight = '300px';
           const successDiv = document.createElement('div');
           Object.assign(successDiv.style, {
             padding: '48px 24px', textAlign: 'center', display: 'flex',
