@@ -82,8 +82,9 @@ fi
 # Detect LAN IP
 LAN_IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | head -1 | awk '{print $2}' || hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
-# Update API URL with detected IP
+# Update API URL and CORS origin with detected IP
 sed -i.bak "s|NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=http://${LAN_IP}:3001/v1|" "$INSTALL_DIR/.env"
+sed -i.bak "s|CORS_ORIGIN=.*|CORS_ORIGIN=http://${LAN_IP}:3000|" "$INSTALL_DIR/.env"
 rm -f "$INSTALL_DIR/.env.bak"
 
 # ─── 4. Build (after .env so NEXT_PUBLIC_API_URL is inlined at build time) ───
@@ -103,13 +104,36 @@ cd "$INSTALL_DIR"
 pm2 delete deep-work-api 2>/dev/null || true
 pm2 delete deep-work-web 2>/dev/null || true
 
-pm2 start "node packages/api/dist/index.js" \
-  --name deep-work-api \
-  --cwd "$INSTALL_DIR"
+# Create pm2 ecosystem file so env vars are passed to processes
+cat > "$INSTALL_DIR/ecosystem.config.cjs" <<PMEOF
+module.exports = {
+  apps: [
+    {
+      name: 'deep-work-api',
+      script: 'node',
+      args: 'packages/api/dist/index.js',
+      cwd: '${INSTALL_DIR}',
+      env: {
+        PORT: '${PORT:-3001}',
+        DB_PATH: '${DB_PATH:-$DATA_DIR/deep-work.db}',
+        UPLOADS_DIR: '${UPLOADS_DIR:-$DATA_DIR/uploads}',
+        CORS_ORIGIN: 'http://${LAN_IP}:3000',
+      },
+    },
+    {
+      name: 'deep-work-web',
+      script: 'npx',
+      args: 'next start packages/web -p 3000',
+      cwd: '${INSTALL_DIR}',
+      env: {
+        NEXT_PUBLIC_API_URL: 'http://${LAN_IP}:3001/v1',
+      },
+    },
+  ],
+};
+PMEOF
 
-pm2 start "npx next start packages/web -p 3000" \
-  --name deep-work-web \
-  --cwd "$INSTALL_DIR"
+pm2 start "$INSTALL_DIR/ecosystem.config.cjs"
 
 pm2 save
 

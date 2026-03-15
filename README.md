@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/jinjin1/Deep-work-for-QA/main/insta
 This handles everything automatically:
 - Installs prerequisites (Node.js, pnpm, pm2)
 - Clones the project
-- Configures `.env` with your local IP (must happen before build so `NEXT_PUBLIC_API_URL` is inlined)
+- Configures `.env` with your local IP (`NEXT_PUBLIC_API_URL` and `CORS_ORIGIN`, must happen before build)
 - Builds all packages
 - Starts API + Web servers with pm2 (auto-restart on boot)
 

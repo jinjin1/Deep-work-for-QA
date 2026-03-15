@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/jinjin1/Deep-work-for-QA/main/insta
 아래 과정을 자동으로 처리합니다:
 - 필수 도구 설치 (Node.js, pnpm, pm2)
 - 프로젝트 클론
-- `.env` 파일에 로컬 IP 자동 설정 (빌드 전에 설정하여 `NEXT_PUBLIC_API_URL`이 빌드에 반영됨)
+- `.env` 파일에 로컬 IP 자동 설정 (`NEXT_PUBLIC_API_URL` 및 `CORS_ORIGIN`, 빌드 전에 설정)
 - 모든 패키지 빌드
 - API + Web 서버를 pm2로 시작 (재부팅 시 자동 실행)
 
