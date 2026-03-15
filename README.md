@@ -7,8 +7,6 @@ AI-native QA workflow platform. Capture bugs with a Chrome extension, manage the
 ## Features
 
 - **Bug Reporting** — Chrome extension captures screenshots, console logs, network requests, and browser environment in one click
-- **AI Analysis** — Automatic reproduction step generation from captured events
-- **Visual Regression Testing** — Compare screenshots against baselines with pixel-level diff analysis
 - **Web Dashboard** — View, filter, and manage bug reports with status tracking
 
 ## Screenshots
