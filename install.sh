@@ -6,7 +6,7 @@ set -e
 
 INSTALL_DIR="${DEEP_WORK_DIR:-$HOME/deep-work}"
 DATA_DIR="$INSTALL_DIR/data"
-REPO_URL="https://github.com/jinjin1/Deep-work.git"
+REPO_URL="https://github.com/jinjin1/Deep-work-for-QA.git"
 
 echo ""
 echo "  Deep Work — AI Native QA Workflow Platform"

@@ -31,7 +31,7 @@ Web Dashboard (Next.js)
 ### Option A: Install Script (recommended for Mac)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jinjin1/Deep-work/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jinjin1/Deep-work-for-QA/main/install.sh | bash
 ```
 
 This installs Node.js, builds the project, and starts servers with auto-restart on boot.
@@ -39,8 +39,8 @@ This installs Node.js, builds the project, and starts servers with auto-restart 
 ### Option B: Docker Compose
 
 ```bash
-git clone https://github.com/jinjin1/Deep-work.git
-cd Deep-work
+git clone https://github.com/jinjin1/Deep-work-for-QA.git
+cd Deep-work-for-QA
 cp .env.example .env
 # Edit .env to set your server IP
 docker compose up -d
@@ -49,8 +49,8 @@ docker compose up -d
 ### Option C: Manual Development Setup
 
 ```bash
-git clone https://github.com/jinjin1/Deep-work.git
-cd Deep-work
+git clone https://github.com/jinjin1/Deep-work-for-QA.git
+cd Deep-work-for-QA
 pnpm install
 pnpm dev          # Starts API (port 3001) + Web (port 3000)
 pnpm dev:all      # Also starts extension dev server (port 5173)

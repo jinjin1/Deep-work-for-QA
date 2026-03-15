@@ -11,3 +11,17 @@ data/
 .DS_Store
 *.log
 packages/web/yarn.lock
+
+# IDE / local config
+.claude/
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# Build artifacts (extension)
+packages/extension/dist/
+packages/api/dist/
+
+# Uploaded files
+packages/api/data/
