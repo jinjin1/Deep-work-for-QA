@@ -99,14 +99,54 @@ pnpm dev          # API (포트 3001) + Web (포트 3000) 시작
 
 여러 팀원이 같은 서버에 버그를 리포트할 수 있습니다. **서버는 한 명만** 실행하면 되고, 나머지 팀원은 Chrome 확장 프로그램만 설치하면 됩니다.
 
-### 같은 Wi-Fi 네트워크
+> **서버 운영자**: 위의 [빠른 시작](#빠른-시작) 방법 A/B/C 중 하나로 서버를 세팅하세요.
+> 서버가 실행되면 팀원들에게 **서버 IP 주소**(또는 터널 URL)와 **확장 프로그램 파일**을 공유해주세요.
 
-팀원이 해야 할 것:
+### 팀원용: Chrome 확장 프로그램 설치 가이드
 
-1. Chrome 확장 프로그램 설치 (`packages/extension/dist` 로드)
-2. 확장 프로그램 옵션에서 서버 IP를 호스트 컴퓨터의 IP로 설정 (예: `192.168.1.50`)
+팀원은 서버를 직접 실행할 필요가 없습니다. 확장 프로그램만 설치하면 됩니다.
 
-### 원격 / 다른 네트워크
+#### 확장 프로그램 파일 받기
+
+아래 두 가지 방법 중 하나를 선택하세요:
+
+**방법 1: 서버 운영자에게 빌드된 파일 받기 (추천)**
+
+서버 운영자가 `packages/extension/dist` 폴더를 zip으로 압축하여 공유하면, 적당한 위치에 압축을 풀어주세요. Node.js나 빌드 과정이 필요 없어 가장 간단합니다.
+
+**방법 2: 직접 클론 & 빌드**
+
+```bash
+git clone https://github.com/jinjin1/Deep-work-for-QA.git
+cd Deep-work-for-QA
+pnpm install
+pnpm --filter @deep-work/extension build
+```
+
+> pnpm이 없다면 `npm install -g pnpm`으로 먼저 설치하세요.
+
+#### Chrome에 확장 프로그램 등록
+
+1. Chrome에서 `chrome://extensions` 접속
+2. 우측 상단 **개발자 모드** 토글 활성화
+3. **압축 해제된 확장 프로그램 로드** 클릭 → `dist` 폴더 선택 (직접 빌드한 경우 `packages/extension/dist`)
+4. 확장 프로그램이 목록에 나타나면 설치 완료
+
+#### 서버 연결 설정
+
+1. Chrome 툴바에서 Deep Work 확장 프로그램 아이콘을 찾아 **우클릭** > **옵션** 선택
+2. 서버 운영자에게 전달받은 **서버 IP 주소**를 입력 (예: `192.168.1.50`)
+3. 저장 후 확장 프로그램 사용 시작
+
+### 네트워크 환경별 설정
+
+#### 같은 Wi-Fi 네트워크
+
+서버 운영자의 로컬 IP 주소를 확장 프로그램 옵션에 입력하면 됩니다 (예: `192.168.1.50`).
+
+> 서버 운영자는 터미널에서 `ipconfig getifaddr en0` (macOS) 또는 `hostname -I` (Linux)로 IP를 확인할 수 있습니다.
+
+#### 원격 / 다른 네트워크
 
 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (무료)을 사용하면 로컬 서버를 외부에 노출할 수 있습니다:
 

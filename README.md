@@ -99,16 +99,56 @@ Copy `.env.example` to `.env` and configure:
 
 Multiple team members can report bugs to the same server. Only **one person** needs to run the server — everyone else just installs the Chrome extension.
 
-### Same Wi-Fi Network
+> **Server admin**: Set up the server using one of the [Quick Start](#quick-start) options (A/B/C).
+> Once running, share the **server IP address** (or tunnel URL) and the **extension files** with your team.
 
-Team members just need to:
+### For Team Members: Chrome Extension Install Guide
 
-1. Install the Chrome extension (load `packages/extension/dist`)
-2. Set the server IP in extension options to the host machine's IP (e.g. `192.168.1.50`)
+Team members do not need to run the server. Just install the extension and connect to the shared server.
 
-### Remote / Different Network
+#### Step 1: Get the Extension Files
 
-Use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (free) to expose your local server:
+Choose one of the following:
+
+**Option 1: Get pre-built files from the server admin (recommended)**
+
+Ask the server admin to zip and share the `packages/extension/dist` folder. Unzip it to any location on your machine. No Node.js or build tools required.
+
+**Option 2: Clone & build yourself**
+
+```bash
+git clone https://github.com/jinjin1/Deep-work-for-QA.git
+cd Deep-work-for-QA
+pnpm install
+pnpm --filter @deep-work/extension build
+```
+
+> If you don't have pnpm, install it first: `npm install -g pnpm`
+
+#### Step 2: Load the Extension in Chrome
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode** (toggle in the top-right corner)
+3. Click **Load unpacked** → select the `dist` folder (or `packages/extension/dist` if you built it yourself)
+4. The extension should now appear in your extensions list
+
+#### Step 3: Connect to the Server
+
+1. Find the Deep Work extension icon in the Chrome toolbar, **right-click** > **Options**
+2. Enter the **server IP address** provided by the server admin (e.g. `192.168.1.50`)
+3. Save — you're ready to start reporting bugs
+
+### Network Setup
+
+#### Same Wi-Fi Network
+
+Enter the server admin's local IP address in the extension options (e.g. `192.168.1.50`).
+
+> The server admin can find their IP by running `ipconfig getifaddr en0` (macOS) or `hostname -I` (Linux).
+
+#### Remote / Different Network
+
+Use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (free) to expose the local server:
 
 ```bash
 brew install cloudflared
