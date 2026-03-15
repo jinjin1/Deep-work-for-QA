@@ -638,12 +638,15 @@ function injectAnnotationOverlay(imageDataUrl: string) {
       }, (response: { success: boolean; error?: string; reportId?: string }) => {
         if (response?.success) {
           formPanel.innerHTML = '';
-          formPanel.style.justifyContent = 'center';
-          formPanel.style.minHeight = '300px';
+          Object.assign(formPanel.style, {
+            justifyContent: 'center', alignItems: 'center',
+            minHeight: '300px', overflow: 'visible',
+          });
           const successDiv = document.createElement('div');
           Object.assign(successDiv.style, {
             padding: '48px 24px', textAlign: 'center', display: 'flex',
             flexDirection: 'column', alignItems: 'center', gap: '14px',
+            width: '100%',
           });
           const checkmark = document.createElement('div');
           checkmark.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>';
